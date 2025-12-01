@@ -6,7 +6,10 @@ Standalone LangGraph agent for scraping Google Maps search results without using
 
 - **Free Solution**: No Google Maps API key required
 - **Browser Automation**: Uses Playwright to render JavaScript and extract real data
-- **Comprehensive Data Extraction**: Business name, rating, reviews, category, price level, address, and Google Maps URL
+- **Comprehensive Data Extraction**: Business name, rating, reviews, category, price level, address, phone number, website, email, and Google Maps URL
+- **Phone & Email Extraction**: Extracts phone numbers and emails from Google Maps listings
+- **Website Enrichment** (Optional): Visit business websites to extract additional information and emails
+- **Smart Page Detection**: Automatically finds Contact and About pages for better data extraction
 - **Pagination Support**: Automatically scrolls to load more results
 - **Structured Output**: Saves results in both Markdown and JSON formats
 - **LangGraph Workflow**: Follows the same patterns as your other agents
@@ -15,9 +18,11 @@ Standalone LangGraph agent for scraping Google Maps search results without using
 
 The agent follows a streamlined workflow:
 
-1. **Scrape** - Uses Playwright to navigate to Google Maps and extract search results
-2. **Process** - Structures and cleans the scraped data
-3. **Save** - Outputs results in markdown and JSON formats
+1. **Scrape** - Uses Playwright to navigate to Google Maps and extract search results (including phone numbers and websites from list view)
+2. **Enrich** - (Optional) Clicks on each business to extract phone numbers and emails from detail panels
+3. **Process** - Structures and cleans the scraped data
+4. **Enrich Websites** - (Optional) Visits business websites to extract additional information, emails, and summaries
+5. **Save** - Outputs results in markdown and JSON formats
 
 ## Installation
 
@@ -56,6 +61,7 @@ Edit the `example_usage()` function in the script to customize:
 - **query**: What to search for (e.g., "restaurants", "coffee shops", "hair salons")
 - **location**: Where to search (e.g., "New York, NY", "San Francisco, CA")
 - **max_results**: How many results to extract (default: 20)
+- **enrich_with_website**: Whether to visit business websites for additional info (default: False)
 
 Example:
 
@@ -64,6 +70,7 @@ result = await agent.process(
     query="pizza restaurants",
     location="Chicago, IL",
     max_results=30,
+    enrich_with_website=True,  # Enable website scraping
 )
 ```
 
@@ -81,6 +88,7 @@ async def scrape_maps():
         query="hair salons",
         location="Los Angeles, CA",
         max_results=25,
+        enrich_with_website=True,  # Optional: scrape websites for emails
     )
     return result
 
@@ -122,6 +130,13 @@ The `output` folder is automatically created if it doesn't exist.
 - **Category:** Coffee shop
 - **Price Level:** $$
 - **Address:** 66 Mint St, San Francisco, CA
+- **Phone:** +1 415-555-1234
+- **Website:** https://www.bluebottlecoffee.com
+- **Email:** contact@bluebottlecoffee.com
+- **Website Title:** Blue Bottle Coffee - Artisan Coffee Roasters
+- **Website Description:** Premium coffee roasters specializing in single-origin beans
+- **Website Summary:** Blue Bottle Coffee is a specialty coffee roaster...
+- **All Emails Found:** contact@bluebottlecoffee.com, info@bluebottlecoffee.com
 - **Google Maps URL:** https://www.google.com/maps/...
 
 ---
@@ -132,6 +147,8 @@ The `output` folder is automatically created if it doesn't exist.
 - **Category:** Coffee shop
 - **Price Level:** $$
 - **Address:** 201 Berry St, San Francisco, CA
+- **Phone:** +1 415-555-5678
+- **Website:** https://www.philzcoffee.com
 - **Google Maps URL:** https://www.google.com/maps/...
 
 ---
@@ -154,6 +171,13 @@ The `output` folder is automatically created if it doesn't exist.
       "category": "Coffee shop",
       "price_level": "$$",
       "address": "66 Mint St, San Francisco, CA",
+      "phone": "+1 415-555-1234",
+      "website": "https://www.bluebottlecoffee.com",
+      "email": "contact@bluebottlecoffee.com",
+      "website_title": "Blue Bottle Coffee - Artisan Coffee Roasters",
+      "website_description": "Premium coffee roasters specializing in single-origin beans",
+      "website_summary": "Blue Bottle Coffee is a specialty coffee roaster...",
+      "website_emails": ["contact@bluebottlecoffee.com", "info@bluebottlecoffee.com"],
       "url": "https://www.google.com/maps/..."
     }
   ]
@@ -162,7 +186,7 @@ The `output` folder is automatically created if it doesn't exist.
 
 ## Data Extracted
 
-For each business, the agent extracts:
+For each business, the agent extracts from Google Maps:
 
 - **Name**: Business name
 - **Rating**: Star rating (out of 5)
@@ -170,7 +194,24 @@ For each business, the agent extracts:
 - **Category**: Business type/category
 - **Price Level**: Cost indicator ($, $$, $$$, $$$$)
 - **Address**: Physical address
+- **Phone**: Phone number (extracted from list view and detail panel)
+- **Website**: Business website URL (extracted from list view)
+- **Email**: Email address (extracted from detail panel)
 - **URL**: Google Maps URL for the business
+
+### Website Enrichment (Optional)
+
+When `enrich_with_website=True`, the agent also:
+
+- **Visits Business Websites**: Scrapes each business website for additional information
+- **Finds Contact Pages**: Automatically detects and scrapes Contact/Contact Us pages for emails
+- **Finds About Pages**: Automatically detects and scrapes About/About Us pages for better summaries
+- **Extracts Website Metadata**:
+  - Website title
+  - Meta description
+  - Website summary (from About page when available)
+  - All email addresses found on the website
+  - Additional phone numbers from the website
 
 ## How It Works
 
@@ -188,15 +229,28 @@ The agent uses Playwright to:
 The scraper:
 - Finds result items using `div[role="feed"]` selector
 - Extracts information from aria-labels and visible text
-- Parses ratings, reviews, categories, and addresses
+- Parses ratings, reviews, categories, addresses, phone numbers, and websites from list view
+- Clicks on each business to open detail panel and extract additional phone numbers and emails
 - Deduplicates results by business name
 
-### 3. Rate Limiting
+### 3. Website Enrichment (Optional)
+
+When enabled, the scraper:
+- Visits each business website using Playwright
+- Automatically finds Contact pages by scanning links for keywords (contact, contact us, get in touch, etc.)
+- Automatically finds About pages by scanning links for keywords (about, about us, our story, etc.)
+- Extracts emails from Contact pages (more reliable than homepage)
+- Extracts website summaries from About pages (better content than homepage)
+- Falls back to homepage if Contact/About pages aren't found
+- Filters out false positive emails (example.com, test.com, etc.)
+
+### 4. Rate Limiting
 
 Built-in delays prevent:
 - IP blocking
 - CAPTCHA challenges
 - Failed requests
+- 1 second delay between website scrapes when enrichment is enabled
 
 ## Limitations
 
@@ -260,11 +314,24 @@ Navigating to: https://www.google.com/maps/search/coffee+shops+in+San+Francisco%
 Extracted 10 results so far...
 Extracted 15 results so far...
 Extracted 20 results so far...
+Enriching results with phone numbers and websites...
+Enriching 1/20: Blue Bottle Coffee
+Enriching 2/20: Philz Coffee
+...
 ✅ Successfully scraped 20 results
 
 📊 NODE: process_results_node - Processing results
 ================================================================================
 ✅ Processed 20 results
+
+🌐 NODE: enrich_websites_node - Scraping websites for additional info
+================================================================================
+Enriching 1/20: Blue Bottle Coffee - https://www.bluebottlecoffee.com
+Found contact page: https://www.bluebottlecoffee.com/contact
+Found about page: https://www.bluebottlecoffee.com/about
+Successfully scraped website: https://www.bluebottlecoffee.com, found 2 emails
+...
+✅ Enriched 20 results with website information
 
 ✅ Workflow completed successfully!
 ================================================================================
@@ -279,9 +346,11 @@ Extracted 20 results so far...
 
 - **Local Business Research**: Find competitors in your area
 - **Market Analysis**: Research business density by category
-- **Lead Generation**: Extract contact information for outreach
+- **Lead Generation**: Extract contact information (phone, email, website) for outreach
+- **Email Collection**: Automatically find business emails from websites and Contact pages
 - **Data Analysis**: Analyze ratings, reviews, and pricing trends
 - **Location Scouting**: Find businesses in specific areas
+- **Contact Database Building**: Build comprehensive contact databases with phone, email, and website
 
 ## Troubleshooting
 
@@ -312,15 +381,47 @@ If you get blocked:
 - Use different search queries
 - Wait before retrying
 
+## Website Enrichment Details
+
+### How It Works
+
+1. **Homepage Scraping**: First scrapes the homepage for basic metadata (title, description)
+2. **Contact Page Detection**: Scans all links on the homepage to find Contact/Contact Us pages
+3. **Contact Page Scraping**: Extracts emails and phone numbers from Contact pages (more reliable)
+4. **About Page Detection**: Scans all links to find About/About Us pages
+5. **About Page Scraping**: Extracts content from About pages for better summaries
+6. **Fallback Logic**: Uses homepage if Contact/About pages aren't found
+
+### Email Extraction
+
+The agent extracts emails from:
+- Contact pages (primary source)
+- Homepage (fallback)
+- `mailto:` links
+- Text content using regex patterns
+
+Emails are filtered to exclude:
+- Example/test domains (example.com, test.com)
+- Social media emails (@google, @facebook)
+- Auto-generated emails (noreply, no-reply)
+
+### Summary Extraction
+
+The agent prioritizes:
+1. About page content (best quality)
+2. Homepage content (fallback)
+
+This ensures summaries contain meaningful business information rather than code snippets.
+
 ## Future Enhancements
 
 Potential improvements:
-- Click on businesses for detailed information
 - Extract photos and business hours
 - Support for filtering results
 - Export to CSV format
 - Proxy support for scaling
 - Parallel scraping for multiple queries
+- Support for multiple languages
 
 ## License
 

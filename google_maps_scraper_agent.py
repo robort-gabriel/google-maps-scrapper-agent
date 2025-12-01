@@ -1,0 +1,1456 @@
+"""
+Standalone LangGraph Agent for Google Maps Scraping
+
+This is a production-ready, standalone backend agent that uses LangGraph
+to orchestrate Google Maps search result scraping using Playwright.
+
+INSTALLATION:
+    pip install -r requirements.txt
+    playwright install chromium
+
+REQUIRED ENVIRONMENT VARIABLES:
+    - OPENAI_API_KEY: Your OpenAI API key (optional, for LLM analysis)
+
+    You can set it in:
+    1. Environment variable: export OPENAI_API_KEY=your_key
+    2. .env file in the same directory as this script
+
+USAGE:
+    python google_maps_scraper_agent.py
+
+    Or as a module:
+    python -m google_maps_scraper_agent
+
+OUTPUT:
+    Results are saved to the 'output' folder:
+    - results_{query}_{timestamp}.md: Search results in markdown format with business details
+    - results_{query}_{timestamp}.json: Search results in JSON format for further processing
+"""
+
+import logging
+import json
+import re
+import time
+import os
+from typing import TypedDict, Annotated, List, Optional, Dict, Any, Literal
+from urllib.parse import quote_plus, urlparse, urljoin
+from pathlib import Path
+from datetime import datetime
+import asyncio
+
+from playwright.async_api import (
+    async_playwright,
+    Browser,
+    Page,
+    TimeoutError as PlaywrightTimeoutError,
+)
+from langgraph.graph import StateGraph, END, START
+from langgraph.checkpoint.memory import MemorySaver
+
+# Try to load .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+
+    # Load .env file from the same directory as this script
+    try:
+        script_dir = Path(__file__).parent.absolute()
+        env_path = script_dir / ".env"
+        if env_path.exists():
+            load_dotenv(env_path)
+        else:
+            load_dotenv()
+    except NameError:
+        load_dotenv()
+except ImportError:
+    pass
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# State Definition
+# ============================================================================
+
+
+class GoogleMapsScraperState(TypedDict):
+    """State for the Google Maps scraper agent."""
+
+    messages: Annotated[List, lambda x, y: x + y]
+    query: str
+    max_results: int
+    location: Optional[str]
+    enrich_with_website: bool  # Enable website scraping and email extraction
+    raw_results: Optional[List[Dict[str, Any]]]
+    processed_results: Optional[List[Dict[str, Any]]]
+    total_found: int
+    status: str
+    error: Optional[str]
+
+
+# ============================================================================
+# Google Maps Scraper
+# ============================================================================
+
+
+class GoogleMapsScraper:
+    """Scraper for extracting business information from Google Maps."""
+
+    def __init__(self):
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+    async def _find_page_url(
+        self, page: Page, base_url: str, keywords: List[str]
+    ) -> Optional[str]:
+        """
+        Find a page URL by examining links on the website.
+
+        Args:
+            page: Playwright page object
+            base_url: Base website URL
+            keywords: List of keywords to search for in links
+
+        Returns:
+            URL of the found page, or None if not found
+        """
+        try:
+            # Extract all links from the page
+            links = await page.evaluate(
+                """
+                () => {
+                    const links = [];
+                    const allLinks = document.querySelectorAll('a[href]');
+                    for (const link of allLinks) {
+                        const href = link.getAttribute('href') || '';
+                        const text = (link.textContent || link.getAttribute('aria-label') || '').toLowerCase();
+                        if (href) {
+                            links.push({ href: href, text: text });
+                        }
+                    }
+                    return links;
+                }
+                """
+            )
+
+            # Parse base URL for relative URL resolution
+            parsed_url = urlparse(base_url)
+            base_domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+            potential_links = []
+
+            for link in links:
+                href = link.get("href", "").lower()
+                text = link.get("text", "").lower()
+
+                # Skip empty links or external links (unless they're on the same domain)
+                if not href:
+                    continue
+
+                # Resolve relative URLs
+                if href.startswith("/"):
+                    full_url = urljoin(base_domain, href)
+                elif href.startswith("http"):
+                    # Only include if same domain
+                    if base_domain in href:
+                        full_url = href
+                    else:
+                        continue
+                else:
+                    full_url = urljoin(base_url, href)
+
+                # Check if link text or URL contains keywords
+                text_matches = sum(1 for keyword in keywords if keyword in text)
+                href_matches = sum(0.5 for keyword in keywords if keyword in href)
+
+                if text_matches > 0 or href_matches > 0:
+                    score = text_matches + href_matches
+                    potential_links.append({"url": full_url, "score": score})
+
+            # Sort by score and return the best match
+            if potential_links:
+                potential_links.sort(key=lambda x: x["score"], reverse=True)
+                return potential_links[0]["url"]
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"Error finding page URL: {str(e)}")
+            return None
+
+    async def _scrape_page_content(self, page: Page, url: str) -> Dict[str, Any]:
+        """
+        Scrape content from a specific page.
+
+        Args:
+            page: Playwright page object
+            url: URL to scrape
+
+        Returns:
+            Dictionary containing page content, emails, and phone numbers
+        """
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await asyncio.sleep(1.5)  # Wait for dynamic content
+
+            content = await page.evaluate(
+                """
+                () => {
+                    const info = {
+                        bodyText: '',
+                        emails: [],
+                        phoneNumbers: []
+                    };
+
+                    // Extract body text from main content areas
+                    const contentSelectors = [
+                        'main', 'article', '[role="main"]', 
+                        '.content', '#content', '.main-content',
+                        '.contact', '#contact', '.about', '#about'
+                    ];
+                    
+                    let contentElement = null;
+                    for (const selector of contentSelectors) {
+                        contentElement = document.querySelector(selector);
+                        if (contentElement) break;
+                    }
+                    
+                    if (!contentElement) {
+                        contentElement = document.body;
+                    }
+
+                    // Extract text from headings and paragraphs
+                    const textElements = contentElement.querySelectorAll('h1, h2, h3, h4, h5, h6, p, li, span, div');
+                    const textParts = Array.from(textElements)
+                        .map(el => el.textContent?.trim())
+                        .filter(text => text && text.length > 0);
+                    
+                    info.bodyText = textParts.join('\\n').substring(0, 5000);
+
+                    // Extract email addresses from text content
+                    const emailPattern = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/g;
+                    const allText = document.body.innerText || document.body.textContent || '';
+                    const emailMatches = allText.match(emailPattern);
+                    
+                    if (emailMatches) {
+                        const filteredEmails = emailMatches
+                            .map(email => email.toLowerCase().trim())
+                            .filter(email => {
+                                const excludePatterns = [
+                                    'example.com', 'test.com', 'sample.com',
+                                    'domain.com', 'email.com', 'yourdomain.com',
+                                    'yoursite.com', 'website.com', 'company.com',
+                                    '@google', '@facebook', '@twitter', '@instagram',
+                                    'noreply', 'no-reply', 'donotreply'
+                                ];
+                                return !excludePatterns.some(pattern => email.includes(pattern));
+                            })
+                            .filter((email, index, self) => self.indexOf(email) === index);
+                        
+                        info.emails = filteredEmails.slice(0, 10);
+                    }
+
+                    // Extract phone numbers from text content
+                    const phonePattern = /\\+?1?[\\s\\-]?\\(?[0-9]{3}\\)?[\\s\\-]?[0-9]{3}[\\s\\-]?[0-9]{4}/g;
+                    const phoneMatches = allText.match(phonePattern);
+                    
+                    if (phoneMatches) {
+                        info.phoneNumbers = phoneMatches
+                            .map(phone => phone.trim())
+                            .filter((phone, index, self) => self.indexOf(phone) === index)
+                            .slice(0, 5);
+                    }
+
+                    // Check for mailto links
+                    const mailtoLinks = document.querySelectorAll('a[href^="mailto:"]');
+                    for (const link of mailtoLinks) {
+                        const href = link.getAttribute('href') || '';
+                        const emailMatch = href.match(/mailto:([^?\\s]+)/);
+                        if (emailMatch) {
+                            const email = emailMatch[1].toLowerCase().trim();
+                            if (!info.emails.includes(email)) {
+                                info.emails.push(email);
+                            }
+                        }
+                    }
+
+                    // Check for tel: links
+                    const telLinks = document.querySelectorAll('a[href^="tel:"]');
+                    for (const link of telLinks) {
+                        const href = link.getAttribute('href') || '';
+                        const phoneMatch = href.match(/tel:([\\d\\+\\-\\(\\)\\s]+)/);
+                        if (phoneMatch) {
+                            const phone = phoneMatch[1].trim();
+                            if (!info.phoneNumbers.includes(phone)) {
+                                info.phoneNumbers.push(phone);
+                            }
+                        }
+                    }
+
+                    return info;
+                }
+                """
+            )
+
+            return content
+
+        except Exception as e:
+            logger.warning(f"Error scraping page {url}: {str(e)}")
+            return {"bodyText": "", "emails": [], "phoneNumbers": []}
+
+    async def scrape_website_info(
+        self, website_url: str, timeout: int = 30000
+    ) -> Dict[str, Any]:
+        """
+        Scrape website information and extract email addresses.
+        Checks homepage, contact page (for emails), and about page (for summary).
+
+        Args:
+            website_url: Website URL to scrape
+            timeout: Timeout in milliseconds
+
+        Returns:
+            Dictionary containing website information and email addresses
+        """
+        try:
+            logger.info(f"Scraping website: {website_url}")
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-blink-features=AutomationControlled",
+                    ],
+                )
+
+                try:
+                    page = await browser.new_page(
+                        viewport={"width": 1920, "height": 1080},
+                        user_agent=self.user_agent,
+                    )
+
+                    # Step 1: Scrape homepage for basic info
+                    await page.goto(
+                        website_url, wait_until="networkidle", timeout=timeout
+                    )
+                    await asyncio.sleep(2)  # Wait for dynamic content
+
+                    homepage_info = await page.evaluate(
+                        """
+                        () => {
+                            return {
+                                title: document.title || '',
+                                metaDescription: document.querySelector('meta[name="description"]')?.content || 
+                                                document.querySelector('meta[property="og:description"]')?.content || ''
+                            };
+                        }
+                        """
+                    )
+
+                    # Initialize combined info with homepage data
+                    website_info = {
+                        "title": homepage_info.get("title", ""),
+                        "metaDescription": homepage_info.get("metaDescription", ""),
+                        "bodyText": "",
+                        "emails": [],
+                        "phoneNumbers": [],
+                    }
+
+                    # Step 2: Find and scrape Contact page for emails
+                    contact_keywords = [
+                        "contact",
+                        "contact us",
+                        "contact-us",
+                        "get in touch",
+                        "reach us",
+                        "email us",
+                    ]
+                    contact_url = await self._find_page_url(
+                        page, website_url, contact_keywords
+                    )
+
+                    if contact_url:
+                        logger.info(f"Found contact page: {contact_url}")
+                        contact_content = await self._scrape_page_content(
+                            page, contact_url
+                        )
+                        website_info["emails"].extend(contact_content.get("emails", []))
+                        website_info["phoneNumbers"].extend(
+                            contact_content.get("phoneNumbers", [])
+                        )
+                    else:
+                        logger.info(
+                            "No contact page found, checking homepage for emails"
+                        )
+                        # Fallback: check homepage for emails
+                        homepage_content = await self._scrape_page_content(
+                            page, website_url
+                        )
+                        website_info["emails"].extend(
+                            homepage_content.get("emails", [])
+                        )
+                        website_info["phoneNumbers"].extend(
+                            homepage_content.get("phoneNumbers", [])
+                        )
+
+                    # Step 3: Find and scrape About page for better summary
+                    about_keywords = [
+                        "about",
+                        "about us",
+                        "about-us",
+                        "our story",
+                        "who we are",
+                        "company",
+                    ]
+                    about_url = await self._find_page_url(
+                        page, website_url, about_keywords
+                    )
+
+                    if about_url:
+                        logger.info(f"Found about page: {about_url}")
+                        about_content = await self._scrape_page_content(page, about_url)
+                        # Use about page content for summary (better than homepage)
+                        about_text = about_content.get("bodyText", "")
+                        if about_text and len(about_text) > 100:
+                            website_info["bodyText"] = about_text
+                        else:
+                            # Fallback to homepage if about page is too short
+                            homepage_content = await self._scrape_page_content(
+                                page, website_url
+                            )
+                            website_info["bodyText"] = homepage_content.get(
+                                "bodyText", ""
+                            )
+                    else:
+                        logger.info("No about page found, using homepage for summary")
+                        # Fallback: use homepage for summary
+                        homepage_content = await self._scrape_page_content(
+                            page, website_url
+                        )
+                        website_info["bodyText"] = homepage_content.get("bodyText", "")
+
+                    # Remove duplicates from emails and phone numbers
+                    website_info["emails"] = list(
+                        dict.fromkeys(website_info["emails"])
+                    )[
+                        :10
+                    ]  # Limit to 10 emails
+                    website_info["phoneNumbers"] = list(
+                        dict.fromkeys(website_info["phoneNumbers"])
+                    )[
+                        :5
+                    ]  # Limit to 5 phone numbers
+
+                    logger.info(
+                        f"Successfully scraped website: {website_url}, found {len(website_info.get('emails', []))} emails"
+                    )
+                    return website_info
+
+                finally:
+                    await browser.close()
+
+        except Exception as e:
+            logger.error(f"Error scraping website {website_url}: {str(e)}")
+            return {
+                "title": "",
+                "metaDescription": "",
+                "bodyText": "",
+                "emails": [],
+                "phoneNumbers": [],
+                "error": str(e),
+            }
+
+    async def scrape_search_results(
+        self,
+        query: str,
+        max_results: int = 20,
+        location: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Scrape Google Maps search results for a given query.
+
+        Args:
+            query: Search query (e.g., "restaurants in New York")
+            max_results: Maximum number of results to extract
+            location: Optional location to append to query
+
+        Returns:
+            List of business information dictionaries
+        """
+        try:
+            # Build search query
+            if location:
+                search_query = f"{query} in {location}"
+            else:
+                search_query = query
+
+            logger.info(f"Starting Google Maps scrape for: {search_query}")
+
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-blink-features=AutomationControlled",
+                    ],
+                )
+
+                try:
+                    page = await browser.new_page(
+                        viewport={"width": 1920, "height": 1080},
+                        user_agent=self.user_agent,
+                    )
+
+                    # Build Google Maps search URL
+                    encoded_query = quote_plus(search_query)
+                    maps_url = f"https://www.google.com/maps/search/{encoded_query}"
+                    logger.info(f"Navigating to: {maps_url}")
+
+                    # Navigate to Google Maps
+                    await page.goto(maps_url, wait_until="networkidle", timeout=60000)
+                    await asyncio.sleep(3)  # Wait for results to fully load
+
+                    # Wait for results container
+                    try:
+                        await page.wait_for_selector('div[role="feed"]', timeout=10000)
+                    except PlaywrightTimeoutError:
+                        logger.warning(
+                            "Results feed not found, trying alternative selectors"
+                        )
+
+                    results = []
+                    previous_count = 0
+                    scroll_attempts = 0
+                    max_scroll_attempts = 20
+
+                    # Scroll to load more results
+                    while (
+                        len(results) < max_results
+                        and scroll_attempts < max_scroll_attempts
+                    ):
+                        # Extract current results
+                        current_results = await self._extract_results_from_page(page)
+
+                        if len(current_results) > previous_count:
+                            results = current_results
+                            previous_count = len(current_results)
+                            logger.info(f"Extracted {len(results)} results so far...")
+
+                        if len(results) >= max_results:
+                            break
+
+                        # Scroll the results panel
+                        await self._scroll_results_panel(page)
+                        await asyncio.sleep(2)  # Wait for new results to load
+                        scroll_attempts += 1
+
+                    # Limit to max_results
+                    results = results[:max_results]
+
+                    # Enrich results with phone and website by clicking on each business
+                    logger.info("Enriching results with phone numbers and websites...")
+                    enriched_results = []
+                    for i, result in enumerate(results, 1):
+                        # Check if page is still valid before enriching
+                        if page.is_closed():
+                            logger.error(
+                                "Page closed during enrichment, stopping enrichment process"
+                            )
+                            # Add remaining results without enrichment
+                            enriched_results.extend(results[i - 1 :])
+                            break
+
+                        logger.info(
+                            f"Enriching {i}/{len(results)}: {result.get('name', 'Unknown')}"
+                        )
+                        try:
+                            enriched = await self._enrich_business_details(page, result)
+                            enriched_results.append(enriched)
+                        except Exception as enrich_error:
+                            logger.error(
+                                f"Error enriching {result.get('name', 'Unknown')}: {str(enrich_error)}"
+                            )
+                            # If page is closed, stop enrichment
+                            if (
+                                "closed" in str(enrich_error).lower()
+                                or page.is_closed()
+                            ):
+                                logger.error(
+                                    "Page closed during enrichment, stopping enrichment process"
+                                )
+                                # Add remaining results without enrichment
+                                enriched_results.extend(results[i - 1 :])
+                                break
+                            # Otherwise, add the result without enrichment
+                            enriched_results.append(result)
+
+                        # Small delay between clicks to avoid rate limiting
+                        await asyncio.sleep(1)
+
+                    logger.info(
+                        f"Successfully extracted {len(enriched_results)} results with details"
+                    )
+                    return enriched_results
+
+                finally:
+                    await browser.close()
+
+        except Exception as e:
+            logger.error(f"Error scraping Google Maps: {str(e)}")
+            raise
+
+    async def _extract_results_from_page(self, page: Page) -> List[Dict[str, Any]]:
+        """Extract business information from the current page state."""
+        try:
+            # Extract data using JavaScript
+            results = await page.evaluate(
+                """
+                () => {
+                    const results = [];
+                    const items = document.querySelectorAll('[role="feed"] [role="article"]');
+                    
+                    items.forEach((item) => {
+                        try {
+                            const result = {};
+                            
+                            // Get the link
+                            const linkEl = item.querySelector('a');
+                            result.url = linkEl ? linkEl.href : '';
+                            
+                            // Get name from aria-label
+                            result.name = item.getAttribute('aria-label') || '';
+                            
+                            // Get all text content
+                            const allText = item.innerText;
+                            const lines = allText.split('\\n').map(l => l.trim()).filter(l => l && l !== '·');
+                            
+                            // Extract rating and reviews from line 2 (format: "4.9(488) · $1–10")
+                            if (lines.length > 1) {
+                                const ratingLine = lines[1];
+                                
+                                // Extract rating
+                                const ratingMatch = ratingLine.match(/(\\d+\\.\\d+)/);
+                                if (ratingMatch) {
+                                    result.rating = ratingMatch[1];
+                                }
+                                
+                                // Extract review count
+                                const reviewMatch = ratingLine.match(/\\(([0-9,]+)\\)/);
+                                if (reviewMatch) {
+                                    result.reviews = reviewMatch[1].replace(/,/g, '');
+                                }
+                                
+                                // Extract price level
+                                const priceMatch = ratingLine.match(/\\$\\d+[–-]\\d+/);
+                                if (priceMatch) {
+                                    result.price_level = priceMatch[0];
+                                }
+                            }
+                            
+                            // Extract category and address from line 3 (format: "Coffee shop ·  · 1410 Lombard St")
+                            if (lines.length > 2) {
+                                const detailsLine = lines[2];
+                                const parts = detailsLine.split('·').map(p => p.trim()).filter(p => p);
+                                
+                                // First part is usually category
+                                if (parts[0]) {
+                                    result.category = parts[0];
+                                }
+                                
+                                // Look for address in the parts (has numbers and street name)
+                                for (const part of parts) {
+                                    if (part.match(/\\d+\\s+[\\w\\s]+(St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Ln|Lane)/i)) {
+                                        result.address = part;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // Extract website from the "Visit ... website" link in the list view
+                            const allLinks = item.querySelectorAll('a[href^="http"]');
+                            for (const link of allLinks) {
+                                const href = link.getAttribute('href') || '';
+                                const text = (link.textContent || link.getAttribute('aria-label') || '').toLowerCase();
+                                
+                                // Skip Google Maps links
+                                if (href.includes('google.com') || href.includes('maps')) {
+                                    continue;
+                                }
+                                
+                                // Check if it's a website link (has "website" or "visit" in text)
+                                if ((text.includes('website') || text.includes('visit')) && 
+                                    (href.startsWith('http://') || href.startsWith('https://'))) {
+                                    result.website = href;
+                                    break;
+                                }
+                            }
+                            
+                            // Extract phone number from the list view
+                            // Phone numbers appear as text like "+1 929-265-5595" or "+1 347-620-4099"
+                            // They typically appear after the hours/status line
+                            const phonePattern = /\\+?1?[\\s\\-]?\\(?[0-9]{3}\\)?[\\s\\-]?[0-9]{3}[\\s\\-]?[0-9]{4}/;
+                            const phoneMatch = allText.match(phonePattern);
+                            if (phoneMatch) {
+                                result.phone = phoneMatch[0].trim();
+                            }
+                            
+                            // Also check for tel: links in the list view
+                            if (!result.phone) {
+                                const telLinks = item.querySelectorAll('a[href^="tel:"]');
+                                for (const telLink of telLinks) {
+                                    const href = telLink.getAttribute('href') || '';
+                                    const phoneMatch = href.match(/tel:([\\d\\+\\-\\(\\)\\s]+)/);
+                                    if (phoneMatch) {
+                                        result.phone = phoneMatch[1].trim();
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // Only add if we have a name
+                            if (result.name) {
+                                results.push(result);
+                            }
+                        } catch (err) {
+                            console.error('Error extracting item:', err);
+                        }
+                    });
+                    
+                    return results;
+                }
+             """
+            )
+
+            # Deduplicate results by name
+            unique_results = []
+            seen_names = set()
+
+            for result in results:
+                name = result.get("name", "").strip()
+                if name and name not in seen_names:
+                    seen_names.add(name)
+                    unique_results.append(result)
+
+            return unique_results
+
+        except Exception as e:
+            logger.error(f"Error extracting results from page: {str(e)}")
+            return []
+
+    async def _scroll_results_panel(self, page: Page):
+        """Scroll the Google Maps results panel to load more results."""
+        try:
+            await page.evaluate(
+                """
+                () => {
+                    const feed = document.querySelector('div[role="feed"]');
+                    if (feed) {
+                        feed.scrollTop = feed.scrollHeight;
+                    }
+                }
+            """
+            )
+        except Exception as e:
+            logger.warning(f"Error scrolling results panel: {str(e)}")
+
+    async def _enrich_business_details(
+        self, page: Page, business: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Enrich business data by clicking on the result and extracting phone and website.
+        """
+        try:
+            business_name = business.get("name", "")
+            if not business_name:
+                return business
+
+            # Check if page is still valid
+            if page.is_closed():
+                logger.warning(f"Page is closed, cannot enrich {business_name}")
+                return business
+
+            # Find and click on the business link
+            try:
+                # Wait for the results feed to be visible
+                try:
+                    await page.wait_for_selector('div[role="feed"]', timeout=5000)
+                except:
+                    logger.warning(
+                        f"Results feed not found, skipping enrichment for {business_name}"
+                    )
+                    return business
+
+                # Try to find the business by its name in the aria-label
+                # Escape special characters in the name for the selector
+                escaped_name = business_name.replace('"', '\\"').replace("'", "\\'")
+                business_selector = f'[role="article"][aria-label*="{escaped_name}"] a'
+                business_link = await page.query_selector(business_selector)
+
+                if not business_link:
+                    # Fallback: try to find by URL
+                    business_url = business.get("url", "")
+                    if business_url and "/place/" in business_url:
+                        place_id = business_url.split("/place/")[1].split("/")[0]
+                        business_link = await page.query_selector(
+                            f'a[href*="{place_id}"]'
+                        )
+
+                if not business_link:
+                    logger.warning(f"Could not find business link for {business_name}")
+                    return business
+
+                # Click on the business to open detail panel
+                # Google Maps should open a side panel, but handle navigation if it occurs
+                try:
+                    # Try clicking without expecting navigation (side panel)
+                    await business_link.click(timeout=5000)
+                except Exception as click_error:
+                    # If click fails, the link might not be clickable or page might be closing
+                    logger.warning(
+                        f"Error clicking business link for {business_name}: {str(click_error)}"
+                    )
+                    if page.is_closed():
+                        raise
+                    return business
+
+                # Wait for detail panel to appear (side panel, not a new page)
+                try:
+                    # Wait for the detail panel/side panel to appear
+                    await page.wait_for_selector('[role="main"]', timeout=5000)
+                except:
+                    # Try alternative selectors for the detail panel
+                    try:
+                        await page.wait_for_selector(".m6QErb", timeout=3000)
+                    except:
+                        logger.warning(f"Detail panel not found for {business_name}")
+                        return business
+
+                # Wait a bit for the panel content to load
+                await asyncio.sleep(1.5)
+
+                # Wait a bit more for the detail panel to fully render
+                await asyncio.sleep(1)
+
+                # Check if page is still valid before extracting
+                if page.is_closed():
+                    logger.warning(f"Page closed after clicking {business_name}")
+                    return business
+
+                # Extract phone and email from the detail panel ONLY
+                # Website is already extracted from the list view, no need to get it here
+                details = await page.evaluate(
+                    """
+                    () => {
+                        const details = { phone: null, email: null };
+                        
+                        // Find the detail panel - the specific section that shows after clicking a business
+                        // Look for the rightmost panel (role="main" or specific detail container)
+                        const detailPanel = document.querySelector('[role="main"]') || 
+                                          document.querySelector('.m6QErb') || 
+                                          document.querySelector('[class*="pane"]') ||
+                                          document.body;
+                        
+                        // Find phone number - look for clickable phone links within detail panel
+                        const phoneLink = detailPanel.querySelector('a[href^="tel:"]');
+                        if (phoneLink) {
+                            const href = phoneLink.getAttribute('href') || '';
+                            const phoneMatch = href.match(/tel:([\\d\\+\\-\\(\\)\\s]+)/);
+                            if (phoneMatch) {
+                                details.phone = phoneMatch[1].trim();
+                            } else {
+                                const text = phoneLink.textContent || '';
+                                const phoneMatch2 = text.match(/([\\d\\s\\+\\-\\(\\)]+)/);
+                                if (phoneMatch2) {
+                                    details.phone = phoneMatch2[1].trim();
+                                }
+                            }
+                        }
+                        
+                        // Also search for phone in the detail panel's text (not entire page)
+                        if (!details.phone) {
+                            const detailText = detailPanel.innerText;
+                            const phonePattern = /\\+?1?\\s?[\\(\\[]?[0-9]{3}[\\)\\]]?[\\s\\-]?[0-9]{3}[\\s\\-]?[0-9]{4}/;
+                            const phoneMatch = detailText.match(phonePattern);
+                            if (phoneMatch) {
+                                details.phone = phoneMatch[0].trim();
+                            }
+                        }
+                        
+                        // Find email - look for mailto links first (within detail panel)
+                        const emailLink = detailPanel.querySelector('a[href^="mailto:"]');
+                        if (emailLink) {
+                            const href = emailLink.getAttribute('href') || '';
+                            const emailMatch = href.match(/mailto:([^?\\s]+)/);
+                            if (emailMatch) {
+                                details.email = emailMatch[1].trim();
+                            } else {
+                                const text = emailLink.textContent || '';
+                                const emailMatch2 = text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/);
+                                if (emailMatch2) {
+                                    details.email = emailMatch2[1].trim();
+                                }
+                            }
+                        }
+                        
+                        // Also search in detail panel text for email patterns (not entire page)
+                        if (!details.email) {
+                            const detailText = detailPanel.innerText;
+                            const emailPattern = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/;
+                            const emailMatch = detailText.match(emailPattern);
+                            if (emailMatch) {
+                                const email = emailMatch[1].trim();
+                                // Filter out false positives
+                                if (!email.includes('example.com') && !email.includes('test.com') && 
+                                    !email.includes('google.com') && email.includes('@')) {
+                                    details.email = email;
+                                }
+                            }
+                        }
+                        
+                        return details;
+                    }
+                    """
+                )
+
+                # Add phone and email to business data
+                # Phone and website are already extracted from list view, only use detail panel if not found
+                # Only set phone if it wasn't already extracted from list view
+                if details.get("phone") and not business.get("phone"):
+                    business["phone"] = details["phone"]
+                if details.get("email"):
+                    business["email"] = details["email"]
+
+                    # Close the detail panel (side panel) to return to search results
+                    try:
+                        if not page.is_closed():
+                            # Press Escape to close the side panel
+                            await page.keyboard.press("Escape")
+                            await asyncio.sleep(0.5)
+
+                            # Wait a bit for the panel to close
+                            await asyncio.sleep(0.5)
+                    except Exception as close_error:
+                        logger.warning(
+                            f"Error closing detail panel for {business_name}: {str(close_error)}"
+                        )
+
+            except Exception as e:
+                logger.warning(f"Error clicking on business {business_name}: {str(e)}")
+                # If page is closed, we can't continue enriching
+                if "closed" in str(e).lower() or page.is_closed():
+                    logger.error(
+                        f"Page closed during enrichment, stopping enrichment process"
+                    )
+                    raise
+
+            return business
+
+        except Exception as e:
+            logger.warning(f"Error enriching business data: {str(e)}")
+            return business
+
+
+# ============================================================================
+# Graph Nodes
+# ============================================================================
+
+scraper = GoogleMapsScraper()
+
+
+async def scrape_google_maps_node(
+    state: GoogleMapsScraperState,
+) -> GoogleMapsScraperState:
+    """Scrape Google Maps search results."""
+    try:
+        print("\n" + "=" * 80)
+        print("🔍 NODE: scrape_google_maps_node - Starting Google Maps scraping")
+        print("=" * 80)
+        logger.info(f"Scraping Google Maps for query: {state['query']}")
+
+        results = await scraper.scrape_search_results(
+            query=state["query"],
+            max_results=state.get("max_results", 20),
+            location=state.get("location"),
+        )
+
+        if not results:
+            print("❌ No results found")
+            return {
+                **state,
+                "status": "completed",
+                "raw_results": [],
+                "total_found": 0,
+                "error": "No results found",
+            }
+
+        print(f"✅ Successfully scraped {len(results)} results")
+        return {
+            **state,
+            "raw_results": results,
+            "total_found": len(results),
+            "status": "scraped",
+        }
+    except Exception as e:
+        print(f"❌ Error in scrape_google_maps_node: {str(e)}")
+        logger.error(f"Error in scrape_google_maps_node: {str(e)}")
+        return {**state, "status": "error", "error": str(e)}
+
+
+async def process_results_node(state: GoogleMapsScraperState) -> GoogleMapsScraperState:
+    """Process and structure the scraped results."""
+    try:
+        print("\n" + "=" * 80)
+        print("📊 NODE: process_results_node - Processing results")
+        print("=" * 80)
+        logger.info("Processing scraped results")
+
+        raw_results = state.get("raw_results", [])
+
+        if not raw_results:
+            return {**state, "status": "completed", "processed_results": []}
+
+        # Process and clean results
+        processed_results = []
+        for i, result in enumerate(raw_results, 1):
+            processed = {
+                "rank": i,
+                "name": result.get("name", "N/A"),
+                "rating": result.get("rating", "N/A"),
+                "reviews": result.get("reviews", "N/A"),
+                "category": result.get("category", "N/A"),
+                "price_level": result.get("price_level", "N/A"),
+                "address": result.get("address", "N/A"),
+                "phone": result.get("phone", "N/A"),
+                "website": result.get("website", "N/A"),
+                "email": result.get("email", "N/A"),
+                "url": result.get("url", "N/A"),
+            }
+            processed_results.append(processed)
+
+        print(f"✅ Processed {len(processed_results)} results")
+        return {
+            **state,
+            "processed_results": processed_results,
+            "status": "processed",
+        }
+    except Exception as e:
+        print(f"❌ Error in process_results_node: {str(e)}")
+        logger.error(f"Error in process_results_node: {str(e)}")
+        return {**state, "status": "error", "error": str(e)}
+
+
+async def enrich_websites_node(state: GoogleMapsScraperState) -> GoogleMapsScraperState:
+    """Enrich results with website information and email addresses."""
+    try:
+        print("\n" + "=" * 80)
+        print("🌐 NODE: enrich_websites_node - Scraping websites for additional info")
+        print("=" * 80)
+        logger.info("Enriching results with website information")
+
+        processed_results = state.get("processed_results", [])
+        if not processed_results:
+            logger.warning("No processed results to enrich")
+            return {**state, "status": "completed"}
+
+        enriched_results = []
+        for i, result in enumerate(processed_results, 1):
+            website = result.get("website", "N/A")
+
+            # Skip if no website or website is N/A
+            if not website or website == "N/A" or not website.startswith("http"):
+                enriched_results.append(result)
+                continue
+
+            logger.info(
+                f"Enriching {i}/{len(processed_results)}: {result.get('name', 'Unknown')} - {website}"
+            )
+
+            try:
+                # Scrape website information
+                website_info = await scraper.scrape_website_info(website)
+
+                # Update result with website information
+                enriched_result = {**result}
+
+                # Add website metadata
+                if website_info.get("title"):
+                    enriched_result["website_title"] = website_info["title"]
+                if website_info.get("metaDescription"):
+                    enriched_result["website_description"] = website_info[
+                        "metaDescription"
+                    ]
+                if website_info.get("bodyText"):
+                    enriched_result["website_summary"] = website_info["bodyText"][
+                        :500
+                    ]  # First 500 chars
+
+                # Update email if found on website and not already set
+                if website_info.get("emails") and len(website_info["emails"]) > 0:
+                    # Use the first email found, or keep existing if already set
+                    if enriched_result.get("email") == "N/A" or not enriched_result.get(
+                        "email"
+                    ):
+                        enriched_result["email"] = website_info["emails"][0]
+                    # Also store all emails found
+                    enriched_result["website_emails"] = website_info["emails"]
+
+                # Update phone if found on website and not already set
+                if (
+                    website_info.get("phoneNumbers")
+                    and len(website_info["phoneNumbers"]) > 0
+                ):
+                    if enriched_result.get("phone") == "N/A" or not enriched_result.get(
+                        "phone"
+                    ):
+                        enriched_result["phone"] = website_info["phoneNumbers"][0]
+
+                enriched_results.append(enriched_result)
+
+                # Small delay between website scrapes to avoid rate limiting
+                await asyncio.sleep(1)
+
+            except Exception as e:
+                logger.error(
+                    f"Error enriching website for {result.get('name', 'Unknown')}: {str(e)}"
+                )
+                # Add result without enrichment if scraping fails
+                enriched_results.append(result)
+
+        print(f"✅ Enriched {len(enriched_results)} results with website information")
+        return {
+            **state,
+            "processed_results": enriched_results,
+            "status": "enriched",
+        }
+    except Exception as e:
+        print(f"❌ Error in enrich_websites_node: {str(e)}")
+        logger.error(f"Error in enrich_websites_node: {str(e)}")
+        return {**state, "status": "error", "error": str(e)}
+
+
+async def agent_node(state: GoogleMapsScraperState) -> GoogleMapsScraperState:
+    """Main agent node that orchestrates the workflow."""
+    try:
+        current_status = state.get("status", "initialized")
+        enrich_with_website = state.get("enrich_with_website", False)
+
+        if current_status == "initialized":
+            return await scrape_google_maps_node(state)
+
+        elif current_status == "scraped":
+            return await process_results_node(state)
+
+        elif current_status == "processed":
+            # Only enrich with website if enabled
+            if enrich_with_website:
+                return await enrich_websites_node(state)
+            else:
+                return {**state, "status": "completed"}
+
+        elif current_status == "enriched":
+            return {**state, "status": "completed"}
+
+        return state
+
+    except Exception as e:
+        logger.error(f"Error in agent_node: {str(e)}")
+        return {**state, "status": "error", "error": str(e)}
+
+
+def should_continue(state: GoogleMapsScraperState) -> Literal["continue", "end"]:
+    """Determine if the workflow should continue or end."""
+    status = state.get("status", "")
+
+    if status == "completed":
+        return "end"
+    elif status == "error":
+        return "end"
+    else:
+        return "continue"
+
+
+# ============================================================================
+# Graph Construction
+# ============================================================================
+
+
+def create_google_maps_scraper_agent():
+    """Create and compile the Google Maps scraper LangGraph agent."""
+
+    workflow = StateGraph(GoogleMapsScraperState)
+
+    workflow.add_node("agent", agent_node)
+    workflow.set_entry_point("agent")
+
+    workflow.add_conditional_edges(
+        "agent",
+        should_continue,
+        {
+            "continue": "agent",
+            "end": END,
+        },
+    )
+
+    memory = MemorySaver()
+    graph = workflow.compile(checkpointer=memory)
+
+    return graph
+
+
+# ============================================================================
+# Agent Interface
+# ============================================================================
+
+
+class GoogleMapsScraperAgent:
+    """Standalone LangGraph agent for Google Maps scraping."""
+
+    def __init__(self):
+        self.graph = create_google_maps_scraper_agent()
+        logger.info("Google Maps Scraper Agent initialized")
+
+    async def process(
+        self,
+        query: str,
+        max_results: int = 20,
+        location: Optional[str] = None,
+        enrich_with_website: bool = False,
+        thread_id: str = "default",
+    ) -> Dict[str, Any]:
+        """
+        Process a Google Maps search query.
+
+        Args:
+            query: Search query (e.g., "coffee shops", "restaurants")
+            max_results: Maximum number of results to scrape (default: 20)
+            location: Optional location (e.g., "New York, NY")
+            enrich_with_website: If True, visit each business website to extract additional info and emails (default: False)
+            thread_id: Thread ID for conversation tracking
+
+        Returns:
+            Dictionary containing scraped results
+        """
+        try:
+            if not query:
+                raise ValueError("Query must be provided")
+
+            initial_state = {
+                "messages": [],
+                "query": query,
+                "max_results": max_results,
+                "location": location,
+                "enrich_with_website": enrich_with_website,
+                "raw_results": None,
+                "processed_results": None,
+                "total_found": 0,
+                "status": "initialized",
+                "error": None,
+            }
+
+            print("\n" + "=" * 80)
+            print("🚀 Starting Google Maps Scraper Agent Workflow")
+            print("=" * 80)
+            config = {"configurable": {"thread_id": thread_id}}
+            result = None
+
+            async for event in self.graph.astream(initial_state, config):
+                result = event
+                if "agent" in event:
+                    status = event["agent"].get("status", "processing")
+                    logger.info(f"Agent status: {status}")
+
+            print("\n" + "=" * 80)
+            print("✅ Workflow completed successfully!")
+            print("=" * 80)
+
+            final_state = (
+                result.get("agent", initial_state) if result else initial_state
+            )
+
+            if final_state.get("status") == "error":
+                error_msg = final_state.get("error", "Unknown error occurred")
+                raise ValueError(f"Agent processing failed: {error_msg}")
+
+            return {
+                "status": "success",
+                "query": query,
+                "location": location,
+                "total_found": final_state.get("total_found", 0),
+                "results": final_state.get("processed_results", []),
+                "processing_status": final_state.get("status", "unknown"),
+            }
+
+        except Exception as e:
+            logger.error(f"Error processing Google Maps scrape request: {str(e)}")
+            raise
+
+
+# ============================================================================
+# Factory Function
+# ============================================================================
+
+
+def create_agent() -> GoogleMapsScraperAgent:
+    """Factory function to create a new Google Maps scraper agent instance."""
+    return GoogleMapsScraperAgent()
+
+
+# ============================================================================
+# Utility Functions
+# ============================================================================
+
+
+def sanitize_filename(text: str, max_length: int = 50) -> str:
+    """
+    Sanitize text to be used as a filename.
+
+    Args:
+        text: The text to sanitize
+        max_length: Maximum length of the filename
+
+    Returns:
+        Sanitized filename-safe string
+    """
+    invalid_chars = '<>:"/\\|?*.'
+    sanitized = text.strip()
+
+    for char in invalid_chars:
+        sanitized = sanitized.replace(char, "-")
+
+    sanitized = re.sub(r"[\s\-]+", "-", sanitized)
+    sanitized = sanitized.strip("-")
+
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length].rstrip("-")
+
+    return sanitized if sanitized else "google_maps_results"
+
+
+# ============================================================================
+# Example Usage
+# ============================================================================
+
+
+async def example_usage():
+    """Example of how to use the agent."""
+
+    agent = create_agent()
+
+    # Customize your search here
+    query = "web development agencies"
+    location = "New York, NY"
+    max_results = 5
+    enrich_with_website = True  # Set to True to scrape websites and extract emails
+
+    result = await agent.process(
+        query=query,
+        location=location,
+        max_results=max_results,
+        enrich_with_website=enrich_with_website,
+    )
+
+    # Create output folder
+    try:
+        script_dir = Path(__file__).parent.absolute()
+        output_dir = script_dir / "output"
+    except NameError:
+        output_dir = Path.cwd() / "output"
+
+    output_dir.mkdir(exist_ok=True)
+
+    results = result.get("results", [])
+    total_found = result.get("total_found", 0)
+    search_query = f"{query} in {location}" if location else query
+
+    # Create filename
+    sanitized_query = sanitize_filename(query)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Save as Markdown
+    md_file = output_dir / f"results_{sanitized_query}_{timestamp}.md"
+    with open(md_file, "w", encoding="utf-8") as f:
+        f.write(f"# Google Maps Search Results\n\n")
+        f.write(f"**Search Query:** {search_query}\n\n")
+        f.write(f"**Total Results Found:** {total_found}\n\n")
+        f.write(f"**Generated at:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write("---\n\n")
+
+        if results:
+            for business in results:
+                f.write(f"## {business['rank']}. {business['name']}\n\n")
+                f.write(f"- **Rating:** {business['rating']}")
+                if business["reviews"] != "N/A":
+                    f.write(f" ({business['reviews']} reviews)")
+                f.write("\n")
+
+                if business["category"] != "N/A":
+                    f.write(f"- **Category:** {business['category']}\n")
+                if business["price_level"] != "N/A":
+                    f.write(f"- **Price Level:** {business['price_level']}\n")
+                if business["address"] != "N/A":
+                    f.write(f"- **Address:** {business['address']}\n")
+                if business["phone"] != "N/A":
+                    f.write(f"- **Phone:** {business['phone']}\n")
+                if business["website"] != "N/A":
+                    f.write(f"- **Website:** {business['website']}\n")
+                if business["email"] != "N/A":
+                    f.write(f"- **Email:** {business['email']}\n")
+                if business.get("website_title"):
+                    f.write(f"- **Website Title:** {business['website_title']}\n")
+                if business.get("website_description"):
+                    f.write(
+                        f"- **Website Description:** {business['website_description']}\n"
+                    )
+                if business.get("website_summary"):
+                    f.write(
+                        f"- **Website Summary:** {business['website_summary'][:200]}...\n"
+                    )
+                if (
+                    business.get("website_emails")
+                    and len(business.get("website_emails", [])) > 0
+                ):
+                    emails_str = ", ".join(business["website_emails"])
+                    f.write(f"- **All Emails Found:** {emails_str}\n")
+                if business["url"] != "N/A":
+                    f.write(f"- **Google Maps URL:** {business['url']}\n")
+
+                f.write("\n---\n\n")
+        else:
+            f.write("*No results found.*\n\n")
+
+    print(f"\n✅ Results saved to: {md_file}")
+    print(f"   Full path: {md_file.absolute()}")
+
+    # Save as JSON
+    json_file = output_dir / f"results_{sanitized_query}_{timestamp}.json"
+    with open(json_file, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "search_query": search_query,
+                "location": location,
+                "total_found": total_found,
+                "timestamp": datetime.now().isoformat(),
+                "results": results,
+            },
+            f,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    print(f"✅ JSON results saved to: {json_file}")
+    print(f"   Full path: {json_file.absolute()}")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(example_usage())
