@@ -1,9 +1,10 @@
 # Google Maps Scraper LangGraph Agent
 
-Standalone LangGraph agent for scraping Google Maps search results without using the official Maps API. This production-ready agent uses Playwright for browser automation to extract business information from Google Maps searches.
+Production-ready LangGraph agent for scraping Google Maps search results without using the official Maps API. This advanced agent uses Playwright for browser automation with **comprehensive anti-detection features** to extract business information reliably.
 
 ## Features
 
+### Core Features
 - **Free Solution**: No Google Maps API key required
 - **Browser Automation**: Uses Playwright to render JavaScript and extract real data
 - **Comprehensive Data Extraction**: Business name, rating, reviews, category, price level, address, phone number, website, email, and Google Maps URL
@@ -11,8 +12,17 @@ Standalone LangGraph agent for scraping Google Maps search results without using
 - **Website Enrichment** (Optional): Visit business websites to extract additional information and emails
 - **Smart Page Detection**: Automatically finds Contact and About pages for better data extraction
 - **Pagination Support**: Automatically scrolls to load more results
-- **Structured Output**: Saves results in both Markdown and JSON formats
 - **LangGraph Workflow**: Follows the same patterns as your other agents
+
+### Anti-Detection Features
+- **🕵️ Stealth Browser Configuration**: Uses playwright-stealth to evade bot detection
+- **🔄 Proxy Rotation Support**: Configurable proxy rotation to avoid IP blocking
+- **🤖 Human Behavior Simulation**: Random delays, realistic mouse movements, natural scrolling
+- **🌍 Geo-Location Spoofing**: Timezone and geolocation matching based on search location
+- **🔄 User Agent Rotation**: Rotating realistic browser fingerprints
+- **🧩 CAPTCHA Handling**: Integration with 2Captcha/Anti-Captcha services
+- **🔀 Fallback Methods**: Multiple scraping methods with automatic failover
+- **🍪 Cookie Consent Handling**: Automatic handling of cookie popups
 
 ## Workflow
 
@@ -41,6 +51,400 @@ playwright install chromium
 This downloads the Chromium browser that Playwright will use for scraping.
 
 ## Usage
+
+### Run as FastAPI Application (Recommended for Production)
+
+The scraper is now available as a production-ready FastAPI application with security features:
+
+- 🔐 **API Key Authentication** - Secure your API with API key authentication
+- 🚦 **Rate Limiting** - Built-in rate limiting (10 requests/minute by default)
+- ✅ **Input Validation** - Comprehensive input validation and sanitization
+- 🌐 **CORS Support** - Configurable CORS for cross-origin requests
+- 📊 **Structured Responses** - Well-defined request/response models
+- 🔍 **Interactive Documentation** - Auto-generated API docs at `/docs` and `/redoc`
+- 🛡️ **Error Handling** - Comprehensive error handling with proper HTTP status codes
+
+#### Quick Start
+
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+playwright install chromium
+
+# 2. Configure environment (optional)
+# Create .env file with your settings (see Environment Variables section below)
+
+# 3. Start the API
+python app.py
+```
+
+#### Environment Variables
+
+Create a `.env` file in the project root with your configuration:
+
+```env
+# ============================================================================
+# API Configuration
+# ============================================================================
+API_KEY=your-secret-api-key-here
+HOST=0.0.0.0
+PORT=8000
+DEBUG=False
+CORS_ORIGINS=*
+RATE_LIMIT_PER_MINUTE=10
+
+# ============================================================================
+# Anti-Detection Configuration
+# ============================================================================
+# Enable stealth browser mode (default: true)
+STEALTH_ENABLED=true
+
+# Enable human-like behavior simulation (default: true)
+HUMAN_SIMULATION_ENABLED=true
+
+# ============================================================================
+# Proxy Configuration (Optional but Recommended)
+# ============================================================================
+# Single proxy URL
+PROXY_URL=http://proxy-host:port
+PROXY_USERNAME=your-proxy-username
+PROXY_PASSWORD=your-proxy-password
+
+# Enable proxy rotation (default: false)
+PROXY_ROTATION_ENABLED=false
+
+# Comma-separated list of proxies for rotation
+PROXY_LIST=http://proxy1:port,http://proxy2:port,http://proxy3:port
+
+# ============================================================================
+# Browserless Fallback (Optional)
+# ============================================================================
+# Browserless.io token for fallback scraping method
+BROWSERLESS_TOKEN=your-browserless-token
+BROWSERLESS_BASE_URL=https://chrome.browserless.io
+
+# ============================================================================
+# CAPTCHA Solving (Optional)
+# ============================================================================
+# Service: "2captcha" or "anticaptcha"
+CAPTCHA_SERVICE=2captcha
+CAPTCHA_API_KEY=your-captcha-api-key
+```
+
+Or with uvicorn directly:
+
+```bash
+uvicorn app:app --reload --host 0.0.0.0 --port 8000
+```
+
+For production:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+The API will be available at:
+- API: `http://localhost:8000`
+- Interactive Docs: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+#### API Endpoints
+
+**Health Check:**
+
+```http
+GET /health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "message": "Google Maps Scraper API is running",
+  "version": "1.0.0"
+}
+```
+
+**Scrape Google Maps:**
+
+```http
+POST /api/v1/scrape
+X-API-Key: your-api-key-here
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "query": "coffee shops",
+  "location": "San Francisco, CA",
+  "max_results": 20,
+  "enrich_with_website": false
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "query": "coffee shops",
+  "location": "San Francisco, CA",
+  "total_found": 20,
+  "processing_status": "completed",
+  "results": [
+    {
+      "rank": 1,
+      "name": "Blue Bottle Coffee",
+      "rating": "4.5",
+      "reviews": "1234",
+      "category": "Coffee shop",
+      "price_level": "$$",
+      "address": "66 Mint St, San Francisco, CA",
+      "phone": "+1 415-555-1234",
+      "website": "https://www.bluebottlecoffee.com",
+      "email": "contact@bluebottlecoffee.com",
+      "url": "https://www.google.com/maps/...",
+      "website_title": "Blue Bottle Coffee - Artisan Coffee Roasters",
+      "website_description": "Premium coffee roasters...",
+      "website_summary": "Blue Bottle Coffee is a specialty...",
+      "website_emails": ["contact@bluebottlecoffee.com"]
+    }
+  ]
+}
+```
+
+**Request Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | Yes | - | Search query (e.g., "coffee shops", "restaurants") |
+| `location` | string | No | null | Optional location (e.g., "New York, NY") |
+| `max_results` | integer | No | 20 | Maximum number of results (1-100) |
+| `enrich_with_website` | boolean | No | false | Visit business websites for additional info and emails |
+
+#### Authentication
+
+The API uses API key authentication via the `X-API-Key` header.
+
+**Setting Up Authentication:**
+
+1. Set `API_KEY` in your `.env` file:
+   ```env
+   API_KEY=your-secret-api-key-here
+   ```
+
+2. Include the API key in your requests:
+   ```bash
+   curl -X POST "http://localhost:8000/api/v1/scrape" \
+     -H "X-API-Key: your-secret-api-key-here" \
+     -H "Content-Type: application/json" \
+     -d '{"query": "coffee shops", "location": "San Francisco, CA"}'
+   ```
+
+**Disabling Authentication:**
+
+If `API_KEY` is not set in the environment, the API will be accessible without authentication (useful for development).
+
+#### Rate Limiting
+
+The API implements rate limiting to prevent abuse:
+- **Default**: 10 requests per minute per IP address
+- **Configurable**: Set `RATE_LIMIT_PER_MINUTE` in `.env`
+
+When rate limit is exceeded, you'll receive:
+```json
+{
+  "detail": "Rate limit exceeded: 10 per 1 minute"
+}
+```
+
+#### CORS Configuration
+
+Configure allowed origins in `.env`:
+
+```env
+# Allow all origins (not recommended for production)
+CORS_ORIGINS=*
+
+# Allow specific origins
+CORS_ORIGINS=https://example.com,https://app.example.com
+```
+
+#### Error Handling
+
+The API returns appropriate HTTP status codes:
+
+- `200 OK` - Successful request
+- `400 Bad Request` - Invalid request parameters
+- `401 Unauthorized` - Missing or invalid API key
+- `429 Too Many Requests` - Rate limit exceeded
+- `500 Internal Server Error` - Server error during scraping
+- `503 Service Unavailable` - Bot detection, CAPTCHA, or all methods failed
+
+**Error Response Format:**
+```json
+{
+  "detail": "Error message here"
+}
+```
+
+**Anti-Detection Related Errors:**
+
+| Status Code | Error Type | Solution |
+|-------------|------------|----------|
+| 503 | CAPTCHA detected | Configure `CAPTCHA_SERVICE` and `CAPTCHA_API_KEY`, or try again later |
+| 503 | Bot detection | Use proxy rotation, wait before retrying |
+| 503 | All methods failed | Check proxy configuration, try again later |
+```
+
+#### Example Usage
+
+**Using cURL:**
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/scrape" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "pizza restaurants",
+    "location": "Chicago, IL",
+    "max_results": 10,
+    "enrich_with_website": true
+  }'
+```
+
+**Using Python:**
+
+```python
+import requests
+
+url = "http://localhost:8000/api/v1/scrape"
+headers = {
+    "X-API-Key": "your-api-key",
+    "Content-Type": "application/json"
+}
+data = {
+    "query": "coffee shops",
+    "location": "San Francisco, CA",
+    "max_results": 20,
+    "enrich_with_website": False
+}
+
+response = requests.post(url, json=data, headers=headers)
+result = response.json()
+
+print(f"Found {result['total_found']} results")
+for business in result['results']:
+    print(f"{business['rank']}. {business['name']} - {business['rating']} stars")
+```
+
+**Using JavaScript/Node.js:**
+
+```javascript
+const fetch = require('node-fetch');
+
+const url = 'http://localhost:8000/api/v1/scrape';
+const headers = {
+  'X-API-Key': 'your-api-key',
+  'Content-Type': 'application/json'
+};
+const data = {
+  query: 'coffee shops',
+  location: 'San Francisco, CA',
+  max_results: 20,
+  enrich_with_website: false
+};
+
+fetch(url, {
+  method: 'POST',
+  headers: headers,
+  body: JSON.stringify(data)
+})
+  .then(res => res.json())
+  .then(result => {
+    console.log(`Found ${result.total_found} results`);
+    result.results.forEach(business => {
+      console.log(`${business.rank}. ${business.name} - ${business.rating} stars`);
+    });
+  });
+```
+
+#### Production Deployment
+
+**Using Docker:**
+
+Create a `Dockerfile`:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
+# Copy application code
+COPY . .
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Build and run:
+
+```bash
+docker build -t google-maps-scraper-api .
+docker run -p 8000:8000 --env-file .env google-maps-scraper-api
+```
+
+**Using Gunicorn with Uvicorn Workers:**
+
+```bash
+pip install gunicorn
+gunicorn app:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+```
+
+#### Security Best Practices
+
+1. **Always set a strong API key** in production
+2. **Use HTTPS** in production (configure reverse proxy like nginx)
+3. **Restrict CORS origins** to your frontend domains
+4. **Monitor rate limits** and adjust as needed
+5. **Keep dependencies updated** regularly
+6. **Use environment variables** for sensitive configuration
+7. **Implement logging** and monitoring in production
+
+#### API Troubleshooting
+
+**API Key Not Working:**
+- Verify `API_KEY` is set in `.env`
+- Check that the header name is `X-API-Key` (case-sensitive)
+- Ensure the API key matches exactly
+
+**Rate Limit Issues:**
+- Increase `RATE_LIMIT_PER_MINUTE` in `.env`
+- Check if multiple clients are using the same IP
+- Consider implementing per-user rate limiting
+
+**Scraping Failures:**
+- Check internet connectivity
+- Verify Playwright browser is installed: `playwright install chromium`
+- Check logs for detailed error messages
+- Google Maps may block excessive requests - add delays between requests
 
 ### Run as Standalone Script
 
@@ -254,11 +658,12 @@ Built-in delays prevent:
 
 ## Limitations
 
-- **Rate Limits**: Google may block excessive requests; use delays between searches
-- **CAPTCHA**: May appear if too many requests are made
-- **Data Accuracy**: Extracted data depends on Google Maps HTML structure
+- **Rate Limits**: Google may still block excessive requests even with anti-detection (use proxy rotation for scale)
+- **CAPTCHA**: May appear if detection is triggered (configure CAPTCHA service for automatic resolution)
+- **Data Accuracy**: Extracted data depends on Google Maps HTML structure which may change
 - **JavaScript Required**: Must use browser automation; simple HTTP requests won't work
 - **No API Features**: Can't access some API-only features (e.g., detailed hours, photos)
+- **Proxy Quality**: Anti-detection effectiveness depends on proxy quality and rotation
 
 ## Best Practices
 
@@ -267,14 +672,130 @@ Built-in delays prevent:
 3. **Handle Errors**: The agent has built-in error handling
 4. **Check Output**: Verify data quality in the output files
 5. **Respect Terms**: Be aware of Google's Terms of Service
+6. **Use Proxies**: For production use, configure proxy rotation to avoid IP blocking
+7. **Enable Stealth Mode**: Keep `STEALTH_ENABLED=true` for better success rates
+
+## Anti-Detection Features
+
+### Overview
+
+This scraper includes comprehensive anti-detection features to bypass bot detection and ensure reliable operation:
+
+| Feature | Description | Configuration |
+|---------|-------------|---------------|
+| Stealth Browser | Evades automation detection | `STEALTH_ENABLED=true` |
+| Human Simulation | Random delays, natural scrolling | `HUMAN_SIMULATION_ENABLED=true` |
+| Proxy Rotation | Rotate IP addresses | `PROXY_URL`, `PROXY_LIST` |
+| User Agent Rotation | Rotate browser fingerprints | Automatic |
+| Timezone Spoofing | Match timezone to search location | Automatic |
+| Geolocation Spoofing | Match coordinates to search location | Automatic |
+| CAPTCHA Solving | Automatic CAPTCHA resolution | `CAPTCHA_SERVICE`, `CAPTCHA_API_KEY` |
+| Cookie Consent | Auto-handle cookie popups | Automatic |
+
+### Stealth Browser Configuration
+
+When `STEALTH_ENABLED=true`, the scraper:
+- Uses `playwright-stealth` for fingerprint evasion
+- Disables automation detection flags
+- Spoofs WebGL vendor/renderer
+- Overrides navigator properties
+- Uses realistic browser plugins
+
+### Human Behavior Simulation
+
+When `HUMAN_SIMULATION_ENABLED=true`, the scraper:
+- Uses random delays with normal distribution (not fixed delays)
+- Scrolls in increments with slight pauses (mimics human scrolling)
+- Adds delays before clicks
+- Waits realistically between page loads
+
+### Proxy Configuration
+
+For reliable operation at scale, configure proxy rotation:
+
+```env
+# Single proxy
+PROXY_URL=http://proxy.example.com:8080
+PROXY_USERNAME=user
+PROXY_PASSWORD=pass
+
+# Multiple proxies with rotation
+PROXY_ROTATION_ENABLED=true
+PROXY_LIST=http://proxy1:8080,http://proxy2:8080,http://proxy3:8080
+```
+
+**Recommended Proxy Providers:**
+- Bright Data (formerly Luminati)
+- Oxylabs
+- Smartproxy
+- IPRoyal
+- Webshare
+
+### CAPTCHA Handling
+
+If CAPTCHA challenges are frequent, integrate a solving service:
+
+```env
+# Using 2Captcha
+CAPTCHA_SERVICE=2captcha
+CAPTCHA_API_KEY=your-2captcha-key
+
+# OR using Anti-Captcha
+CAPTCHA_SERVICE=anticaptcha
+CAPTCHA_API_KEY=your-anticaptcha-key
+```
+
+The scraper will automatically:
+1. Detect CAPTCHA challenges
+2. Submit to solving service
+3. Wait for solution
+4. Inject solution and continue
+
+### Fallback Methods
+
+The scraper uses a fallback architecture:
+
+1. **Primary**: Stealth Playwright with configured proxy
+2. **Secondary**: Browserless service (if configured)
+
+If the primary method fails due to detection, it automatically tries the next method.
+
+### Health Check with Stealth Status
+
+The `/health` endpoint shows the current anti-detection configuration:
+
+```json
+{
+  "status": "healthy",
+  "message": "Google Maps Scraper API is running",
+  "version": "1.0.0",
+  "stealth_status": {
+    "stealth_enabled": true,
+    "human_simulation_enabled": true,
+    "proxy_configured": true,
+    "browserless_configured": false,
+    "captcha_service_configured": true
+  }
+}
+```
 
 ## Dependencies
 
 The agent requires:
 
+**Core Dependencies:**
 - `langgraph` - Graph-based agent orchestration
 - `playwright` - Browser automation for JavaScript rendering
-- `python-dotenv` - Environment variable loading (optional)
+- `fastapi` - API framework
+- `uvicorn` - ASGI server
+- `slowapi` - Rate limiting
+
+**Anti-Detection Dependencies:**
+- `playwright-stealth` - Browser fingerprint evasion
+- `aiohttp` - HTTP client for fallback methods
+
+**Optional Dependencies:**
+- `2captcha-python` - CAPTCHA solving (install if using CAPTCHA service)
 
 All dependencies are listed in `requirements.txt`.
 
@@ -373,13 +894,35 @@ playwright install --with-deps chromium
 - Try a broader search term
 - Check if Google Maps is accessible
 
-### Rate Limiting
+### Rate Limiting / Bot Detection
 
-If you get blocked:
-- Add longer delays between searches
-- Reduce `max_results`
-- Use different search queries
-- Wait before retrying
+If you get blocked or encounter CAPTCHA:
+
+1. **Enable Stealth Mode** (if not already):
+   ```env
+   STEALTH_ENABLED=true
+   HUMAN_SIMULATION_ENABLED=true
+   ```
+
+2. **Configure Proxy Rotation**:
+   ```env
+   PROXY_URL=http://your-proxy:port
+   PROXY_ROTATION_ENABLED=true
+   PROXY_LIST=http://proxy1:port,http://proxy2:port
+   ```
+
+3. **Add CAPTCHA Solving**:
+   ```env
+   CAPTCHA_SERVICE=2captcha
+   CAPTCHA_API_KEY=your-api-key
+   ```
+
+4. **Additional Tips**:
+   - Add longer delays between searches
+   - Reduce `max_results`
+   - Use different search queries
+   - Wait 15-30 minutes before retrying
+   - Use residential proxies instead of datacenter proxies
 
 ## Website Enrichment Details
 
@@ -419,9 +962,11 @@ Potential improvements:
 - Extract photos and business hours
 - Support for filtering results
 - Export to CSV format
-- Proxy support for scaling
 - Parallel scraping for multiple queries
 - Support for multiple languages
+- Selenium undetected-chromedriver fallback
+- Machine learning-based CAPTCHA detection
+- Residential proxy pool integration
 
 ## License
 

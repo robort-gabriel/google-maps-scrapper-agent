@@ -4,13 +4,28 @@
 # Quick Start:
 #   1. pip install -r requirements.txt
 #   2. playwright install chromium
-#   3. python google_maps_scraper_agent.py
+#   3. python app.py
+#
+# Anti-Detection Features:
+#   - Stealth browser configuration
+#   - Proxy rotation support
+#   - Human behavior simulation
+#   - CAPTCHA handling (optional)
+
+# FastAPI and web server
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+slowapi==0.1.9
 
 # Core LangGraph dependencies
 langgraph==0.2.18
 
 # Browser automation
 playwright==1.40.0
+playwright-stealth==1.0.6
+
+# HTTP client for fallback methods
+aiohttp==3.9.1
 
 # Configuration and settings
 pydantic==2.10.4
@@ -19,4 +34,7 @@ python-dotenv==1.0.0
 
 # Standard library enhancements
 typing-extensions>=4.5.0
+
+# CAPTCHA solving (optional - install if needed)
+# 2captcha-python==1.2.1
 
