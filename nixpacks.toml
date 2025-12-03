@@ -8,8 +8,7 @@ nixPkgs = [
   "poetry",
   "playwright",
   "glibc",
-  "gcc",
-  "make"
+  "gcc"
 ]
 
 [phases.install]
