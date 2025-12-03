@@ -19,7 +19,7 @@ cmds = [
 
 [phases.build]
 cmds = [
-  "poetry run playwright install chromium chromium-headless-shell",
+  "poetry run playwright install chromium",
   "poetry run playwright install-deps chromium"
 ]
 
