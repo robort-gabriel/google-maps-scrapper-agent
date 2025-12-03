@@ -394,16 +394,16 @@ async def root():
     }
 
 
-if __name__ == "__main__":
-    import uvicorn
+# if __name__ == "__main__":
+#     import uvicorn
 
-    port = int(os.getenv("PORT", 8000))
-    host = os.getenv("HOST", "0.0.0.0")
+#     port = int(os.getenv("PORT", 8000))
+#     host = os.getenv("HOST", "0.0.0.0")
 
-    uvicorn.run(
-        "app:app",
-        host=host,
-        port=port,
-        reload=os.getenv("DEBUG", "False").lower() == "true",
-        log_level="info",
-    )
+#     uvicorn.run(
+#         "app:app",
+#         host=host,
+#         port=port,
+#         reload=os.getenv("DEBUG", "False").lower() == "true",
+#         log_level="info",
+#     )
