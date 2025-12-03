@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Production-ready Google Maps scraper with anti-detection features"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
-package-mode = false
+packages = [{include = "google_maps_scraper_agent", from = "."}, {include = "stealth_config", from = "."}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
