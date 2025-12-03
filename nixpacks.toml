@@ -3,28 +3,13 @@ channel = "nixpkgs-unstable"
 
 [phases.setup]
 nixPkgs = [
-  "python311",
-  "poetry",
   "nodejs",
+  "python3",
   "playwright",
-  "glibc",
-  "gcc",
-  "make"
-]
-
-[phases.install]
-cmds = [
-  "poetry config virtualenvs.create false",
-  "poetry install --no-interaction --no-ansi --no-dev"
+  "glibc"
 ]
 
 [phases.build]
 cmds = [
-  "poetry run playwright install chromium",
-  "poetry run playwright install-deps chromium"
-]
-
-[variables]
-PYTHONUNBUFFERED = "1"
-PORT = "8000"
-
+  "npx playwright install chromium chromium-headless-shell"
+] 
