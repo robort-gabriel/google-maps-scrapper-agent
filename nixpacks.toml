@@ -11,7 +11,8 @@ nixPkgs = [
 
 [phases.build]
 cmds = [
-  "npx playwright install chromium chromium-headless-shell playwright-stealth"
+  "npx playwright install chromium chromium-headless-shell",
+    "npx playwright-stealth"
 
 
 ] 
