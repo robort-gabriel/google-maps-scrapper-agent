@@ -19,6 +19,7 @@ services:
       - STEALTH_ENABLED=${STEALTH_ENABLED:-true}
       - HUMAN_SIMULATION_ENABLED=${HUMAN_SIMULATION_ENABLED:-true}
       # Proxy Configuration
+      - PROXY_ENABLED=${PROXY_ENABLED:-false}
       - PROXY_URL=${PROXY_URL:-}
       - PROXY_USERNAME=${PROXY_USERNAME:-}
       - PROXY_PASSWORD=${PROXY_PASSWORD:-}

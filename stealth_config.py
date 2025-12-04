@@ -35,6 +35,9 @@ class StealthConfig:
     )
 
     # Proxy settings
+    PROXY_ENABLED: bool = (
+        os.getenv("PROXY_ENABLED", "false").lower() == "true"
+    )  # Master switch for proxy usage
     PROXY_URL: Optional[str] = os.getenv("PROXY_URL")
     PROXY_USERNAME: Optional[str] = os.getenv("PROXY_USERNAME")
     PROXY_PASSWORD: Optional[str] = os.getenv("PROXY_PASSWORD")
@@ -59,8 +62,8 @@ class StealthConfig:
 
     @classmethod
     def has_proxy(cls) -> bool:
-        """Check if proxy is configured."""
-        return bool(cls.PROXY_URL)
+        """Check if proxy is configured and enabled."""
+        return cls.PROXY_ENABLED and bool(cls.PROXY_URL)
 
     @classmethod
     def has_browserless(cls) -> bool:
@@ -202,6 +205,11 @@ class ProxyManager:
 
     def _load_proxies(self) -> None:
         """Load proxies from environment configuration."""
+        # Only load proxies if proxy is enabled
+        if not StealthConfig.PROXY_ENABLED:
+            logger.info("Proxy is disabled via PROXY_ENABLED=false")
+            return
+
         # Load single proxy
         if StealthConfig.PROXY_URL:
             self.proxies.append(
@@ -226,6 +234,10 @@ class ProxyManager:
 
     def get_proxy(self) -> Optional[ProxyInfo]:
         """Get the next available proxy."""
+        # Don't use proxy if disabled
+        if not StealthConfig.PROXY_ENABLED:
+            return None
+
         if not self.proxies:
             return None
 
