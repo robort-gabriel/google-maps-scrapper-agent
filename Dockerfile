@@ -42,7 +42,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install system dependencies for Playwright and runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Playwright dependencies
+    # Playwright Chromium dependencies
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
@@ -61,6 +61,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libatspi2.0-0 \
     libxshmfence1 \
+    # Additional Chromium dependencies
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    fonts-unifont \
+    libgtk-3-0 \
+    libvulkan1 \
+    xdg-utils \
     # Other utilities
     curl \
     wget \
@@ -77,8 +84,8 @@ WORKDIR /app
 COPY . .
 
 # Install Playwright browsers (Chromium only)
-RUN playwright install chromium && \
-    playwright install-deps chromium
+# Note: We skip install-deps since we already installed dependencies above
+RUN playwright install chromium
 
 # Expose port
 EXPOSE 8000
