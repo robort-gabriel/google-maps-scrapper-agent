@@ -48,14 +48,14 @@ output/
 .gitignore
 .gitattributes
 
-# Documentation
-README.md
-*.md
+# Documentation (keep deployment docs)
+# README.md
+# *.md
 
-# Docker
-Dockerfile*
-docker-compose*.yml
-.dockerignore
+# Docker (keep docker-compose for Coolify)
+# Dockerfile*
+# docker-compose*.yml
+# .dockerignore
 
 # CI/CD
 .github/
