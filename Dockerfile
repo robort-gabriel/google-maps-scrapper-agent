@@ -31,14 +31,18 @@ COPY pyproject.toml poetry.lock* ./
 RUN poetry install --no-interaction --no-ansi --only=main || \
     poetry install --no-interaction --no-ansi --no-dev
 
-# Stage 2: Runtime stage
-FROM python:3.11-slim
+# Stage 2: Production stage
+FROM python:3.11-slim as production
+
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/usr/local/bin:$PATH" \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PORT=8000
 
 # Install system dependencies for Playwright and runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -83,17 +87,34 @@ WORKDIR /app
 # Copy application code
 COPY . .
 
-# Install Playwright browsers (Chromium only)
+# Install Playwright browsers (Chromium only) as root
 # Note: We skip install-deps since we already installed dependencies above
 RUN playwright install chromium
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/output /app/logs /ms-playwright \
+    && chown -R appuser:appuser /app /ms-playwright
+
+# Create user home directory and set proper permissions
+RUN mkdir -p /home/appuser \
+    && chown -R appuser:appuser /home/appuser
+
+# Ensure permissions are correct for site-packages
+RUN chown -R appuser:appuser /usr/local/lib/python3.11/site-packages
+
+# Set environment variables for user directories
+ENV HOME=/home/appuser
+ENV PYTHONUSERBASE=/home/appuser/.local
+
+# Switch to non-root user
+USER appuser
 
 # Expose port
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+# Healthcheck may be enabled by orchestrator separately
 
-# Run Gunicorn with Uvicorn workers
+# Use exec form for proper signal handling
 CMD ["gunicorn", "-w", "5", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000", "--timeout", "6000", "--access-logfile", "-", "--error-logfile", "-", "main:app"]
 

@@ -5,77 +5,61 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: google-maps-scraper:latest
+      target: production
     container_name: google-maps-scraper-api
-    restart: unless-stopped
-    
-    # Port mapping
     ports:
       - "${PORT:-8000}:8000"
-    
-    # Environment variables
     environment:
+      - PORT=8000
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
       # API Configuration
       - API_KEY=${API_KEY:-your-secret-api-key}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
-      
       # Stealth Configuration
       - STEALTH_ENABLED=${STEALTH_ENABLED:-true}
       - HUMAN_SIMULATION_ENABLED=${HUMAN_SIMULATION_ENABLED:-true}
-      
       # Proxy Configuration
       - PROXY_URL=${PROXY_URL:-}
       - PROXY_USERNAME=${PROXY_USERNAME:-}
       - PROXY_PASSWORD=${PROXY_PASSWORD:-}
       - PROXY_LIST=${PROXY_LIST:-}
       - PROXY_ROTATION_ENABLED=${PROXY_ROTATION_ENABLED:-false}
-      
       # Browserless Configuration (optional)
       - BROWSERLESS_TOKEN=${BROWSERLESS_TOKEN:-}
       - BROWSERLESS_BASE_URL=${BROWSERLESS_BASE_URL:-https://chrome.browserless.io}
-      
       # CAPTCHA Configuration (optional)
       - CAPTCHA_SERVICE=${CAPTCHA_SERVICE:-2captcha}
       - CAPTCHA_API_KEY=${CAPTCHA_API_KEY:-}
-      
-      # Python Configuration
-      - PYTHONUNBUFFERED=1
-      - PYTHONDONTWRITEBYTECODE=1
-    
-    # Resource limits (adjust based on your needs)
+    env_file:
+      - .env
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - playwright-cache:/ms-playwright
+    networks:
+      - google-maps-network
+    restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '2.0'
           memory: 2G
+          cpus: '2.0'
         reservations:
-          cpus: '0.5'
           memory: 512M
-    
-    # Health check
+          cpus: '0.5'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=3).raise_for_status()"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    
-    # Volumes (optional - for persistent data)
-    volumes:
-      - ./output:/app/output:rw
-      - playwright-cache:/ms-playwright:rw
-    
-    # Logging configuration
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    
-    # Network
-    networks:
-      - google-maps-network
+      start_period: 60s
+    labels:
+      - "coolify.managed=true"
+      - "coolify.service=google-maps-scraper"
+      - "coolify.port=8000"
+      - "coolify.health_check_path=/health"
 
 networks:
   google-maps-network:
