@@ -176,7 +176,8 @@ class GoogleMapsScraper:
         """Get browser launch arguments with optional proxy."""
         args = BrowserFingerprint.get_stealth_args()
 
-        if proxy_url:
+        # Only add proxy if PROXY_ENABLED is true and proxy_url is provided
+        if proxy_url and StealthConfig.PROXY_ENABLED:
             args.append(f"--proxy-server={proxy_url}")
 
         return args
@@ -228,10 +229,11 @@ class GoogleMapsScraper:
             context_options["geolocation"] = geolocation
             context_options["permissions"] = ["geolocation"]
 
-        # Add proxy if configured
-        proxy_config = self.proxy_manager.get_playwright_proxy_config()
-        if proxy_config:
-            context_options["proxy"] = proxy_config
+        # Add proxy if configured and enabled
+        if StealthConfig.PROXY_ENABLED:
+            proxy_config = self.proxy_manager.get_playwright_proxy_config()
+            if proxy_config:
+                context_options["proxy"] = proxy_config
 
         context = await browser.new_context(**context_options)
         page = await context.new_page()
@@ -339,22 +341,59 @@ class GoogleMapsScraper:
             url: URL to navigate to
             timeout: Navigation timeout in milliseconds
         """
+        # Check if page is already closed
+        if page.is_closed():
+            raise Exception("Page is already closed before navigation")
+
         if self.human_simulation_enabled:
             # Add slight delay before navigation
             await asyncio.sleep(HumanBehavior.random_delay(0.5, 1.5))
 
-        # Navigate
-        await page.goto(url, wait_until="networkidle", timeout=timeout)
+        # Navigate with error handling
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=timeout)
+        except Exception as nav_error:
+            # Check if page was closed during navigation
+            if page.is_closed() or "closed" in str(nav_error).lower():
+                raise Exception(
+                    f"Page/browser closed during navigation: {str(nav_error)}"
+                )
+            raise
+
+        # Check if page is still valid after navigation
+        if page.is_closed():
+            raise Exception("Page was closed after navigation")
 
         if self.human_simulation_enabled:
             # Wait for page to fully render
             await asyncio.sleep(HumanBehavior.page_load_delay())
 
+            # Check if page is still valid
+            if page.is_closed():
+                raise Exception("Page was closed during page load delay")
+
             # Handle cookie consent if present
-            await handle_cookie_consent(page)
+            try:
+                await handle_cookie_consent(page)
+            except Exception as cookie_error:
+                if page.is_closed() or "closed" in str(cookie_error).lower():
+                    raise Exception(
+                        f"Page closed during cookie consent handling: {str(cookie_error)}"
+                    )
+                logger.warning(f"Error handling cookie consent: {str(cookie_error)}")
 
             # Check for detection
-            await self._handle_detection(page)
+            if not page.is_closed():
+                try:
+                    await self._handle_detection(page)
+                except (DetectionException, CaptchaException):
+                    raise
+                except Exception as det_error:
+                    if page.is_closed() or "closed" in str(det_error).lower():
+                        raise Exception(
+                            f"Page closed during detection check: {str(det_error)}"
+                        )
+                    raise
 
     async def _human_like_scroll(self, page: Page, scroll_amount: int = 300) -> None:
         """Scroll with human-like behavior."""
@@ -601,8 +640,12 @@ class GoogleMapsScraper:
             logger.info(f"Scraping website: {website_url}")
 
             async with async_playwright() as p:
-                # Get browser args with optional proxy
-                browser_args = self._get_browser_args()
+                # Get browser args (proxy only if PROXY_ENABLED is true)
+                proxy_url = None
+                if StealthConfig.PROXY_ENABLED:
+                    proxy = self.proxy_manager.get_proxy()
+                    proxy_url = proxy.url if proxy else None
+                browser_args = self._get_browser_args(proxy_url)
 
                 browser = await p.chromium.launch(
                     headless=True,
@@ -746,7 +789,7 @@ class GoogleMapsScraper:
     async def scrape_search_results(
         self,
         query: str,
-        max_results: int = 20,
+        max_results: Optional[int] = None,
         location: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -784,10 +827,11 @@ class GoogleMapsScraper:
             except (DetectionException, CaptchaException) as e:
                 logger.warning(f"Detection error with {method_name}: {e}")
                 last_error = e
-                # Rotate proxy on detection
-                proxy = self.proxy_manager.get_proxy()
-                if proxy:
-                    self.proxy_manager.mark_proxy_failed(proxy)
+                # Rotate proxy on detection (only if PROXY_ENABLED is true)
+                if StealthConfig.PROXY_ENABLED:
+                    proxy = self.proxy_manager.get_proxy()
+                    if proxy:
+                        self.proxy_manager.mark_proxy_failed(proxy)
                 continue
             except Exception as e:
                 logger.error(f"Error with {method_name}: {e}")
@@ -802,7 +846,7 @@ class GoogleMapsScraper:
     async def _scrape_with_stealth_playwright(
         self,
         query: str,
-        max_results: int = 20,
+        max_results: Optional[int] = None,
         location: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -826,9 +870,11 @@ class GoogleMapsScraper:
             logger.info(f"Starting Google Maps scrape for: {search_query}")
 
             async with async_playwright() as p:
-                # Get browser args with optional proxy
-                proxy = self.proxy_manager.get_proxy()
-                proxy_url = proxy.url if proxy else None
+                # Get browser args with optional proxy (only if PROXY_ENABLED is true)
+                proxy_url = None
+                if StealthConfig.PROXY_ENABLED:
+                    proxy = self.proxy_manager.get_proxy()
+                    proxy_url = proxy.url if proxy else None
                 browser_args = self._get_browser_args(proxy_url)
 
                 browser = await p.chromium.launch(
@@ -846,7 +892,22 @@ class GoogleMapsScraper:
                     logger.info(f"Navigating to: {maps_url}")
 
                     # Navigate with human-like behavior
-                    await self._human_like_navigation(page, maps_url, timeout=60000)
+                    try:
+                        await self._human_like_navigation(page, maps_url, timeout=60000)
+                    except Exception as nav_error:
+                        # Check if page/browser was closed
+                        if page.is_closed() or "closed" in str(nav_error).lower():
+                            logger.error(
+                                f"Page/browser closed during navigation: {str(nav_error)}"
+                            )
+                            raise Exception(
+                                f"Browser closed during navigation: {str(nav_error)}"
+                            )
+                        raise
+
+                    # Check if page is still valid
+                    if page.is_closed():
+                        raise Exception("Page was closed after navigation")
 
                     # Wait for results container
                     try:
@@ -855,102 +916,184 @@ class GoogleMapsScraper:
                         logger.warning(
                             "Results feed not found, trying alternative selectors"
                         )
+                        # Check if page is still valid
+                        if page.is_closed():
+                            raise Exception("Page was closed while waiting for results")
                         # Check for detection
                         await self._handle_detection(page)
 
                     results = []
                     previous_count = 0
                     scroll_attempts = 0
-                    max_scroll_attempts = 20
+                    no_new_results_count = 0
+                    max_no_new_results = (
+                        5  # Stop if no new results after 5 scrolls (increased from 3)
+                    )
+
+                    # Calculate max scroll attempts based on desired results
+                    # If max_results is None (unlimited), use a very high number
+                    if max_results is None:
+                        max_scroll_attempts = (
+                            1000  # Very high limit for unlimited scraping
+                        )
+                        target_info = "all available results"
+                    else:
+                        max_scroll_attempts = max(
+                            50, max_results // 2
+                        )  # At least 50 attempts, or half of max_results
+                        target_info = f"{max_results} results"
+
+                    logger.info(
+                        f"Starting to scroll and extract results (target: {target_info}, max scroll attempts: {max_scroll_attempts})"
+                    )
 
                     # Scroll to load more results with human-like behavior
                     while (
-                        len(results) < max_results
+                        (max_results is None or len(results) < max_results)
                         and scroll_attempts < max_scroll_attempts
+                        and no_new_results_count < max_no_new_results
                     ):
-                        # Extract current results
-                        current_results = await self._extract_results_from_page(page)
-
-                        if len(current_results) > previous_count:
-                            results = current_results
-                            previous_count = len(current_results)
-                            logger.info(f"Extracted {len(results)} results so far...")
-
-                        if len(results) >= max_results:
-                            break
-
-                        # Scroll the results panel with human-like behavior
-                        await self._scroll_results_panel(page)
-
-                        # Human-like delay between scrolls
-                        if self.human_simulation_enabled:
-                            await asyncio.sleep(HumanBehavior.scroll_delay())
-                        else:
-                            await asyncio.sleep(2)
-
-                        scroll_attempts += 1
-
-                        # Periodically check for detection
-                        if scroll_attempts % 5 == 0:
-                            try:
-                                await self._handle_detection(page)
-                            except (DetectionException, CaptchaException):
-                                raise
-
-                    # Limit to max_results
-                    results = results[:max_results]
-
-                    # Enrich results with phone and website by clicking on each business
-                    logger.info("Enriching results with phone numbers and websites...")
-                    enriched_results = []
-                    for i, result in enumerate(results, 1):
-                        # Check if page is still valid before enriching
+                        # Check if page is still valid
                         if page.is_closed():
-                            logger.error(
-                                "Page closed during enrichment, stopping enrichment process"
+                            logger.warning(
+                                "Page closed during scrolling, returning current results"
                             )
-                            # Add remaining results without enrichment
-                            enriched_results.extend(results[i - 1 :])
                             break
 
-                        logger.info(
-                            f"Enriching {i}/{len(results)}: {result.get('name', 'Unknown')}"
-                        )
                         try:
-                            enriched = await self._enrich_business_details(page, result)
-                            enriched_results.append(enriched)
-                        except Exception as enrich_error:
-                            logger.error(
-                                f"Error enriching {result.get('name', 'Unknown')}: {str(enrich_error)}"
+                            # Extract current results
+                            current_results = await self._extract_results_from_page(
+                                page
                             )
-                            # If page is closed, stop enrichment
-                            if (
-                                "closed" in str(enrich_error).lower()
-                                or page.is_closed()
-                            ):
-                                logger.error(
-                                    "Page closed during enrichment, stopping enrichment process"
+
+                            # Check if we got new results (compare unique names to avoid duplicates)
+                            current_unique = len(
+                                set(
+                                    r.get("name", "")
+                                    for r in current_results
+                                    if r.get("name")
                                 )
-                                # Add remaining results without enrichment
-                                enriched_results.extend(results[i - 1 :])
+                            )
+                            previous_unique = len(
+                                set(r.get("name", "") for r in results if r.get("name"))
+                            )
+
+                            if current_unique > previous_unique:
+                                results = current_results
+                                previous_count = current_unique
+                                no_new_results_count = (
+                                    0  # Reset counter when we get new results
+                                )
+                                target_display = max_results if max_results else "all"
+                                logger.info(
+                                    f"Extracted {current_unique} unique results so far... (target: {target_display})"
+                                )
+                            else:
+                                # No new results this iteration - but continue scrolling
+                                # Google Maps sometimes loads results in batches
+                                no_new_results_count += 1
+                                if no_new_results_count >= max_no_new_results:
+                                    logger.info(
+                                        f"⚠️  No new results after {max_no_new_results} scrolls. "
+                                        f"Reached end of available results: {len(set(r.get('name', '') for r in results if r.get('name')))} unique results found."
+                                    )
+                                    break
+                                else:
+                                    # Continue scrolling even if no new results yet
+                                    logger.debug(
+                                        f"No new results yet (attempt {no_new_results_count}/{max_no_new_results}), continuing to scroll..."
+                                    )
+
+                            if max_results is not None and len(results) >= max_results:
+                                logger.info(
+                                    f"✅ Reached target of {max_results} results"
+                                )
                                 break
-                            # Otherwise, add the result without enrichment
-                            enriched_results.append(result)
 
-                        # Human-like delay between clicks
-                        if self.human_simulation_enabled:
-                            await asyncio.sleep(HumanBehavior.between_actions_delay())
-                        else:
-                            await asyncio.sleep(1)
+                            # Scroll the results panel with human-like behavior
+                            can_scroll_more = await self._scroll_results_panel(page)
+                            if not can_scroll_more:
+                                logger.info(
+                                    f"⚠️  Reached end of scrollable content. Found {len(results)} results (target: {max_results})"
+                                )
+                                no_new_results_count = (
+                                    max_no_new_results  # Trigger exit
+                                )
+                                break
 
-                    # Mark proxy as successful
-                    if proxy:
+                            # Wait longer for Google Maps to load new results after scrolling
+                            # Google Maps loads results dynamically, so we need to wait
+                            # Increase wait time to ensure results are loaded
+                            if self.human_simulation_enabled:
+                                await asyncio.sleep(
+                                    HumanBehavior.scroll_delay() + 2.0
+                                )  # Extra wait for loading (increased from 1.0)
+                            else:
+                                await asyncio.sleep(
+                                    4
+                                )  # Longer wait for results to load (increased from 3)
+
+                            # Sometimes Google Maps needs an extra moment to render
+                            await asyncio.sleep(0.5)
+
+                            scroll_attempts += 1
+
+                            # Periodically check for detection
+                            if scroll_attempts % 5 == 0:
+                                if page.is_closed():
+                                    logger.warning("Page closed during detection check")
+                                    break
+                                try:
+                                    await self._handle_detection(page)
+                                except (DetectionException, CaptchaException):
+                                    raise
+                        except Exception as scroll_error:
+                            # Check if page was closed
+                            if (
+                                page.is_closed()
+                                or "closed" in str(scroll_error).lower()
+                            ):
+                                logger.warning(
+                                    f"Page closed during scrolling: {str(scroll_error)}"
+                                )
+                                break
+                            # For other errors, log and continue
+                            logger.warning(
+                                f"Error during scrolling: {str(scroll_error)}"
+                            )
+                            scroll_attempts += 1
+                            if scroll_attempts >= max_scroll_attempts:
+                                break
+
+                    # Limit to max_results if specified
+                    if max_results is not None:
+                        final_results = results[:max_results]
+                    else:
+                        final_results = results
+                    total_available = len(results)
+
+                    # Mark proxy as successful (only if PROXY_ENABLED is true)
+                    if StealthConfig.PROXY_ENABLED and proxy:
                         self.proxy_manager.mark_proxy_success(proxy)
 
-                    logger.info(
-                        f"Successfully extracted {len(enriched_results)} results with details"
-                    )
-                    return enriched_results
+                    # Log final status
+                    if max_results is None:
+                        logger.info(
+                            f"✅ Successfully extracted all available results: {len(final_results)} total"
+                        )
+                    elif total_available >= max_results:
+                        logger.info(
+                            f"✅ Successfully extracted {len(final_results)} results (requested: {max_results})"
+                        )
+                    else:
+                        logger.info(
+                            f"⚠️  Extracted {len(final_results)} results (requested: {max_results}). "
+                            f"All available results in search have been retrieved."
+                        )
+
+                    # Return results without enrichment (enrichment is now a separate endpoint)
+                    # The scraping endpoint should only return basic results
+                    return final_results
 
                 finally:
                     await browser.close()
@@ -964,7 +1107,7 @@ class GoogleMapsScraper:
     async def _scrape_with_browserless(
         self,
         query: str,
-        max_results: int = 20,
+        max_results: Optional[int] = None,
         location: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -1165,8 +1308,13 @@ class GoogleMapsScraper:
             logger.error(f"Error extracting results from page: {str(e)}")
             return []
 
-    async def _scroll_results_panel(self, page: Page):
-        """Scroll the Google Maps results panel to load more results with human-like behavior."""
+    async def _scroll_results_panel(self, page: Page) -> bool:
+        """
+        Scroll the Google Maps results panel to load more results with human-like behavior.
+
+        Returns:
+            True if scrolling was successful and more content is available, False if at the end
+        """
         try:
             if self.human_simulation_enabled:
                 # Get current scroll position and scroll incrementally
@@ -1178,7 +1326,8 @@ class GoogleMapsScraper:
                             return {
                                 scrollTop: feed.scrollTop,
                                 scrollHeight: feed.scrollHeight,
-                                clientHeight: feed.clientHeight
+                                clientHeight: feed.clientHeight,
+                                canScrollMore: feed.scrollTop < (feed.scrollHeight - feed.clientHeight - 10)
                             };
                         }
                         return null;
@@ -1187,6 +1336,10 @@ class GoogleMapsScraper:
                 )
 
                 if scroll_info:
+                    # Check if we can scroll more
+                    if not scroll_info.get("canScrollMore", True):
+                        return False  # Reached the end
+
                     # Calculate scroll amount (simulate human scrolling)
                     max_scroll = (
                         scroll_info["scrollHeight"] - scroll_info["clientHeight"]
@@ -1194,7 +1347,7 @@ class GoogleMapsScraper:
                     current_scroll = scroll_info["scrollTop"]
 
                     # Scroll in smaller increments with randomness
-                    scroll_amount = random.randint(200, 400)
+                    scroll_amount = random.randint(300, 500)  # Increased scroll amount
                     target_scroll = min(current_scroll + scroll_amount, max_scroll)
 
                     # Scroll with slight variations
@@ -1214,8 +1367,32 @@ class GoogleMapsScraper:
                             """
                         )
                         await asyncio.sleep(random.uniform(0.05, 0.15))
+
+                    # Wait a bit for new content to load
+                    await asyncio.sleep(0.5)
+                    return True
             else:
-                # Simple scroll
+                # Simple scroll - check if we can scroll more first
+                scroll_info = await page.evaluate(
+                    """
+                    () => {
+                        const feed = document.querySelector('div[role="feed"]');
+                        if (feed) {
+                            return {
+                                scrollTop: feed.scrollTop,
+                                scrollHeight: feed.scrollHeight,
+                                clientHeight: feed.clientHeight,
+                                canScrollMore: feed.scrollTop < (feed.scrollHeight - feed.clientHeight - 10)
+                            };
+                        }
+                        return null;
+                    }
+                    """
+                )
+
+                if scroll_info and not scroll_info.get("canScrollMore", True):
+                    return False  # Reached the end
+
                 await page.evaluate(
                     """
                     () => {
@@ -1226,8 +1403,12 @@ class GoogleMapsScraper:
                     }
                     """
                 )
+                # Wait for new content to load
+                await asyncio.sleep(0.5)
+                return True
         except Exception as e:
             logger.warning(f"Error scrolling results panel: {str(e)}")
+            return False
 
     async def _enrich_business_details(
         self, page: Page, business: Dict[str, Any]
@@ -1445,7 +1626,7 @@ async def scrape_google_maps_node(
 
         results = await scraper.scrape_search_results(
             query=state["query"],
-            max_results=state.get("max_results", 20),
+            max_results=state.get("max_results"),  # None means scrape all
             location=state.get("location"),
         )
 
@@ -1688,7 +1869,7 @@ class GoogleMapsScraperAgent:
     async def process(
         self,
         query: str,
-        max_results: int = 20,
+        max_results: Optional[int] = None,
         location: Optional[str] = None,
         enrich_with_website: bool = False,
         thread_id: str = "default",
@@ -1698,7 +1879,7 @@ class GoogleMapsScraperAgent:
 
         Args:
             query: Search query (e.g., "coffee shops", "restaurants")
-            max_results: Maximum number of results to scrape (default: 20)
+            max_results: Maximum number of results to scrape (None = scrape all available results)
             location: Optional location (e.g., "New York, NY")
             enrich_with_website: If True, visit each business website to extract additional info and emails (default: False)
             thread_id: Thread ID for conversation tracking
@@ -1758,6 +1939,106 @@ class GoogleMapsScraperAgent:
 
         except Exception as e:
             logger.error(f"Error processing Google Maps scrape request: {str(e)}")
+            raise
+
+    async def enrich_results(
+        self,
+        results: List[Dict[str, Any]],
+        location: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Enrich existing business results with website information and email addresses.
+
+        Args:
+            results: List of business dictionaries to enrich
+            location: Optional location for context (used for timezone/geolocation)
+
+        Returns:
+            List of enriched business dictionaries
+        """
+        try:
+            if not results:
+                logger.warning("No results provided for enrichment")
+                return []
+
+            logger.info(
+                f"Enriching {len(results)} business results with website information"
+            )
+
+            # Store location for context in the scraper instance
+            scraper._current_location = location
+
+            enriched_results = []
+            for i, result in enumerate(results, 1):
+                website = result.get("website", "N/A")
+
+                # Skip if no website or website is N/A
+                if not website or website == "N/A" or not website.startswith("http"):
+                    enriched_results.append(result)
+                    continue
+
+                logger.info(
+                    f"Enriching {i}/{len(results)}: {result.get('name', 'Unknown')} - {website}"
+                )
+
+                try:
+                    # Scrape website information using the global scraper instance
+                    website_info = await scraper.scrape_website_info(website)
+
+                    # Update result with website information
+                    enriched_result = {**result}
+
+                    # Add website metadata
+                    if website_info.get("title"):
+                        enriched_result["website_title"] = website_info["title"]
+                    if website_info.get("metaDescription"):
+                        enriched_result["website_description"] = website_info[
+                            "metaDescription"
+                        ]
+                    if website_info.get("bodyText"):
+                        enriched_result["website_summary"] = website_info["bodyText"][
+                            :500
+                        ]  # First 500 chars
+
+                    # Update email if found on website and not already set
+                    if website_info.get("emails") and len(website_info["emails"]) > 0:
+                        # Use the first email found, or keep existing if already set
+                        if enriched_result.get(
+                            "email"
+                        ) == "N/A" or not enriched_result.get("email"):
+                            enriched_result["email"] = website_info["emails"][0]
+                        # Also store all emails found
+                        enriched_result["website_emails"] = website_info["emails"]
+
+                    # Update phone if found on website and not already set
+                    if (
+                        website_info.get("phoneNumbers")
+                        and len(website_info["phoneNumbers"]) > 0
+                    ):
+                        if enriched_result.get(
+                            "phone"
+                        ) == "N/A" or not enriched_result.get("phone"):
+                            enriched_result["phone"] = website_info["phoneNumbers"][0]
+
+                    enriched_results.append(enriched_result)
+
+                    # Small delay between website scrapes to avoid rate limiting
+                    await asyncio.sleep(1)
+
+                except Exception as e:
+                    logger.error(
+                        f"Error enriching website for {result.get('name', 'Unknown')}: {str(e)}"
+                    )
+                    # Add result without enrichment if scraping fails
+                    enriched_results.append(result)
+
+            logger.info(
+                f"Successfully enriched {len(enriched_results)} results with website information"
+            )
+            return enriched_results
+
+        except Exception as e:
+            logger.error(f"Error enriching results: {str(e)}")
             raise
 
 

@@ -1,40 +1,75 @@
-# Google Maps Scraper LangGraph Agent
+# 🗺️ Google Maps Scraper API
 
-Production-ready LangGraph agent for scraping Google Maps search results without using the official Maps API. This advanced agent uses Playwright for browser automation with **comprehensive anti-detection features** to extract business information reliably.
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
+[![Playwright](https://img.shields.io/badge/Playwright-Latest-orange.svg)](https://playwright.dev/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Features
+> Production-ready FastAPI application for scraping Google Maps search results without using the official Maps API. Features comprehensive anti-detection capabilities, CSV/JSON support, and file upload endpoints.
+
+## 📋 Table of Contents
+
+- [Features](#-features)
+- [Quick Start](#-quick-start)
+- [Installation](#-installation)
+- [Usage](#-usage)
+  - [API Endpoints](#api-endpoints)
+  - [Authentication](#authentication)
+  - [Rate Limiting](#rate-limiting)
+  - [Error Handling](#error-handling)
+- [Configuration](#-configuration)
+- [Output Formats](#-output-formats)
+- [Anti-Detection Features](#-anti-detection-features)
+- [Examples](#-examples)
+- [Deployment](#-deployment)
+- [Troubleshooting](#-troubleshooting)
+- [License](#-license)
+
+## ✨ Features
 
 ### Core Features
-- **Free Solution**: No Google Maps API key required
-- **Browser Automation**: Uses Playwright to render JavaScript and extract real data
-- **Comprehensive Data Extraction**: Business name, rating, reviews, category, price level, address, phone number, website, email, and Google Maps URL
-- **Phone & Email Extraction**: Extracts phone numbers and emails from Google Maps listings
-- **Website Enrichment** (Optional): Visit business websites to extract additional information and emails
-- **Smart Page Detection**: Automatically finds Contact and About pages for better data extraction
-- **Pagination Support**: Automatically scrolls to load more results
-- **LangGraph Workflow**: Follows the same patterns as your other agents
+- ✅ **Free Solution**: No Google Maps API key required
+- 🌐 **Browser Automation**: Uses Playwright to render JavaScript and extract real data
+- 📊 **Comprehensive Data Extraction**: Business name, rating, reviews, category, price level, address, phone number, website, email, and Google Maps URL
+- 📞 **Phone & Email Extraction**: Extracts phone numbers and emails from Google Maps listings
+- 🔍 **Website Enrichment** (Optional): Visit business websites to extract additional information and emails
+- 🎯 **Smart Page Detection**: Automatically finds Contact and About pages for better data extraction
+- 📄 **Pagination Support**: Automatically scrolls to load more results
+- 📤 **File Upload Support**: Upload JSON or CSV files for enrichment
+- 📈 **CSV Output**: Export results in CSV format for spreadsheet applications
+- 🔄 **Flexible Input/Output**: Support for JSON and CSV formats for both input and output
+- 🔗 **LangGraph Workflow**: Follows the same patterns as your other agents
 
 ### Anti-Detection Features
-- **🕵️ Stealth Browser Configuration**: Uses playwright-stealth to evade bot detection
-- **🔄 Proxy Rotation Support**: Configurable proxy rotation to avoid IP blocking
-- **🤖 Human Behavior Simulation**: Random delays, realistic mouse movements, natural scrolling
-- **🌍 Geo-Location Spoofing**: Timezone and geolocation matching based on search location
-- **🔄 User Agent Rotation**: Rotating realistic browser fingerprints
-- **🧩 CAPTCHA Handling**: Integration with 2Captcha/Anti-Captcha services
-- **🔀 Fallback Methods**: Multiple scraping methods with automatic failover
-- **🍪 Cookie Consent Handling**: Automatic handling of cookie popups
+- 🕵️ **Stealth Browser Configuration**: Uses playwright-stealth to evade bot detection
+- 🔄 **Proxy Rotation Support**: Configurable proxy rotation to avoid IP blocking (only when `PROXY_ENABLED=true`)
+- 🤖 **Human Behavior Simulation**: Random delays, realistic mouse movements, natural scrolling
+- 🌍 **Geo-Location Spoofing**: Timezone and geolocation matching based on search location
+- 🔄 **User Agent Rotation**: Rotating realistic browser fingerprints
+- 🧩 **CAPTCHA Handling**: Integration with 2Captcha/Anti-Captcha services
+- 🔀 **Fallback Methods**: Multiple scraping methods with automatic failover
+- 🍪 **Cookie Consent Handling**: Automatic handling of cookie popups
 
-## Workflow
+## 🚀 Quick Start
 
-The agent follows a streamlined workflow:
+```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+playwright install chromium
 
-1. **Scrape** - Uses Playwright to navigate to Google Maps and extract search results (including phone numbers and websites from list view)
-2. **Enrich** - (Optional) Clicks on each business to extract phone numbers and emails from detail panels
-3. **Process** - Structures and cleans the scraped data
-4. **Enrich Websites** - (Optional) Visits business websites to extract additional information, emails, and summaries
-5. **Save** - Outputs results in markdown and JSON formats
+# 2. Configure environment (optional)
+# Create .env file with your settings
 
-## Installation
+# 3. Start the API
+python main.py
+```
+
+The API will be available at:
+- 🌐 API: `http://localhost:8000`
+- 📚 Interactive Docs: `http://localhost:8000/docs`
+- 📖 ReDoc: `http://localhost:8000/redoc`
+
+## 📦 Installation
 
 ### Step 1: Install Python dependencies
 
@@ -50,11 +85,11 @@ playwright install chromium
 
 This downloads the Chromium browser that Playwright will use for scraping.
 
-## Usage
+## 💻 Usage
 
 ### Run as FastAPI Application (Recommended for Production)
 
-The scraper is now available as a production-ready FastAPI application with security features:
+The scraper is available as a production-ready FastAPI application with security features:
 
 - 🔐 **API Key Authentication** - Secure your API with API key authentication
 - 🚦 **Rate Limiting** - Built-in rate limiting (10 requests/minute by default)
@@ -64,21 +99,7 @@ The scraper is now available as a production-ready FastAPI application with secu
 - 🔍 **Interactive Documentation** - Auto-generated API docs at `/docs` and `/redoc`
 - 🛡️ **Error Handling** - Comprehensive error handling with proper HTTP status codes
 
-#### Quick Start
-
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
-playwright install chromium
-
-# 2. Configure environment (optional)
-# Create .env file with your settings (see Environment Variables section below)
-
-# 3. Start the API
-python app.py
-```
-
-#### Environment Variables
+### Configuration
 
 Create a `.env` file in the project root with your configuration:
 
@@ -103,17 +124,20 @@ STEALTH_ENABLED=true
 HUMAN_SIMULATION_ENABLED=true
 
 # ============================================================================
-# Proxy Configuration (Optional but Recommended)
+# Proxy Configuration (Optional)
 # ============================================================================
-# Single proxy URL
+# Master switch to enable/disable proxy usage (default: false)
+PROXY_ENABLED=false
+
+# Single proxy URL (only used if PROXY_ENABLED=true)
 PROXY_URL=http://proxy-host:port
 PROXY_USERNAME=your-proxy-username
 PROXY_PASSWORD=your-proxy-password
 
-# Enable proxy rotation (default: false)
+# Enable proxy rotation (default: false, only used if PROXY_ENABLED=true)
 PROXY_ROTATION_ENABLED=false
 
-# Comma-separated list of proxies for rotation
+# Comma-separated list of proxies for rotation (only used if PROXY_ENABLED=true)
 PROXY_LIST=http://proxy1:port,http://proxy2:port,http://proxy3:port
 
 # ============================================================================
@@ -131,26 +155,9 @@ CAPTCHA_SERVICE=2captcha
 CAPTCHA_API_KEY=your-captcha-api-key
 ```
 
-Or with uvicorn directly:
+### API Endpoints
 
-```bash
-uvicorn app:app --reload --host 0.0.0.0 --port 8000
-```
-
-For production:
-
-```bash
-uvicorn app:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
-The API will be available at:
-- API: `http://localhost:8000`
-- Interactive Docs: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-#### API Endpoints
-
-**Health Check:**
+#### Health Check
 
 ```http
 GET /health
@@ -161,11 +168,18 @@ GET /health
 {
   "status": "healthy",
   "message": "Google Maps Scraper API is running",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "stealth_status": {
+    "stealth_enabled": true,
+    "human_simulation_enabled": true,
+    "proxy_configured": false,
+    "browserless_configured": false,
+    "captcha_service_configured": false
+  }
 }
 ```
 
-**Scrape Google Maps:**
+#### Scrape Google Maps
 
 ```http
 POST /api/v1/scrape
@@ -179,9 +193,22 @@ Content-Type: application/json
   "query": "coffee shops",
   "location": "San Francisco, CA",
   "max_results": 20,
-  "enrich_with_website": false
+  "save_to_file": false,
+  "output_file_type": "json",
+  "fields": ["name", "website", "phone", "email"]
 }
 ```
+
+**Request Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | Yes | - | Search query (e.g., "coffee shops", "restaurants") |
+| `location` | string | No | null | Optional location (e.g., "New York, NY") |
+| `max_results` | integer | No | 20 | Maximum number of results (1-100) |
+| `save_to_file` | boolean | No | false | Whether to save results to output folder |
+| `output_file_type` | string | No | "json" | Output file type when save_to_file is true. Options: "json" or "csv" |
+| `fields` | array | No | null | Optional list of fields to extract. If not specified, all fields are returned |
 
 **Response:**
 ```json
@@ -203,26 +230,129 @@ Content-Type: application/json
       "phone": "+1 415-555-1234",
       "website": "https://www.bluebottlecoffee.com",
       "email": "contact@bluebottlecoffee.com",
-      "url": "https://www.google.com/maps/...",
-      "website_title": "Blue Bottle Coffee - Artisan Coffee Roasters",
-      "website_description": "Premium coffee roasters...",
-      "website_summary": "Blue Bottle Coffee is a specialty...",
-      "website_emails": ["contact@bluebottlecoffee.com"]
+      "url": "https://www.google.com/maps/..."
     }
   ]
 }
+```
+
+#### Enrich Business Results
+
+```http
+POST /api/v1/enrich
+X-API-Key: your-api-key-here
+Content-Type: multipart/form-data
 ```
 
 **Request Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | Yes | - | Search query (e.g., "coffee shops", "restaurants") |
-| `location` | string | No | null | Optional location (e.g., "New York, NY") |
-| `max_results` | integer | No | 20 | Maximum number of results (1-100) |
-| `enrich_with_website` | boolean | No | false | Visit business websites for additional info and emails |
+| `file` | file | Yes | - | JSON or CSV file containing business results. Must include `name` and `website` fields |
+| `save_to_file` | boolean | No | false | Whether to save enriched results to output folder |
+| `output_file_type` | string | No | "json" | Output file type. Options: "json" or "csv" |
 
-#### Authentication
+**Important Notes:**
+- ⚠️ The input file **must** include `name` and `website` fields for each row
+- ✅ Rows with missing or invalid `name` or `website` fields will be **skipped** (not cause an error)
+- 🔗 The `website` field must be a valid URL starting with `http://` or `https://`
+- 📤 Returns CSV or JSON based on `output_file_type` parameter
+
+**Expected JSON File Format:**
+```json
+{
+  "results": [
+    {
+      "name": "Company Name",
+      "website": "https://example.com",
+      "phone": "+1 555-1234",
+      "email": "contact@example.com"
+    }
+  ]
+}
+```
+
+**Expected CSV File Format:**
+```csv
+name,website,phone,email
+Company Name,https://example.com,+1 555-1234,contact@example.com
+```
+
+**Example Request (cURL):**
+```bash
+curl -X POST "http://localhost:8000/api/v1/enrich" \
+  -H "X-API-Key: your-api-key" \
+  -F "file=@results.csv" \
+  -F "save_to_file=true" \
+  -F "output_file_type=csv"
+```
+
+**Example Request (Python):**
+```python
+import requests
+
+url = "http://localhost:8000/api/v1/enrich"
+headers = {"X-API-Key": "your-api-key"}
+files = {"file": open("results.csv", "rb")}
+data = {
+    "save_to_file": True,
+    "output_file_type": "csv"
+}
+
+response = requests.post(url, headers=headers, files=files, data=data)
+
+# Handle response based on output_file_type
+if data["output_file_type"] == "csv":
+    # Save CSV response
+    with open("enriched_results.csv", "wb") as f:
+        f.write(response.content)
+    print("CSV file saved")
+else:
+    # Handle JSON response
+    result = response.json()
+    print(f"Enriched {result['total_found']} results")
+```
+
+**Response Format:**
+- When `output_file_type="csv"`: Returns CSV file download with `Content-Type: text/csv`
+- When `output_file_type="json"` (default): Returns JSON response with enriched results
+
+#### Extract Website and Company Name
+
+```http
+POST /api/v1/extract
+X-API-Key: your-api-key-here
+Content-Type: multipart/form-data
+```
+
+**Request Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | file | Yes | JSON file containing results array |
+
+**Response:**
+```json
+{
+  "status": "success",
+  "total_extracted": 10,
+  "results": [
+    {
+      "website": "https://example.com",
+      "companyName": "Company Name"
+    }
+  ]
+}
+```
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:8000/api/v1/extract" \
+  -H "X-API-Key: your-api-key" \
+  -F "file=@results.json"
+```
+
+### Authentication
 
 The API uses API key authentication via the `X-API-Key` header.
 
@@ -245,7 +375,7 @@ The API uses API key authentication via the `X-API-Key` header.
 
 If `API_KEY` is not set in the environment, the API will be accessible without authentication (useful for development).
 
-#### Rate Limiting
+### Rate Limiting
 
 The API implements rate limiting to prevent abuse:
 - **Default**: 10 requests per minute per IP address
@@ -258,19 +388,7 @@ When rate limit is exceeded, you'll receive:
 }
 ```
 
-#### CORS Configuration
-
-Configure allowed origins in `.env`:
-
-```env
-# Allow all origins (not recommended for production)
-CORS_ORIGINS=*
-
-# Allow specific origins
-CORS_ORIGINS=https://example.com,https://app.example.com
-```
-
-#### Error Handling
+### Error Handling
 
 The API returns appropriate HTTP status codes:
 
@@ -295,268 +413,8 @@ The API returns appropriate HTTP status codes:
 | 503 | CAPTCHA detected | Configure `CAPTCHA_SERVICE` and `CAPTCHA_API_KEY`, or try again later |
 | 503 | Bot detection | Use proxy rotation, wait before retrying |
 | 503 | All methods failed | Check proxy configuration, try again later |
-```
 
-#### Example Usage
-
-**Using cURL:**
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/scrape" \
-  -H "X-API-Key: your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "pizza restaurants",
-    "location": "Chicago, IL",
-    "max_results": 10,
-    "enrich_with_website": true
-  }'
-```
-
-**Using Python:**
-
-```python
-import requests
-
-url = "http://localhost:8000/api/v1/scrape"
-headers = {
-    "X-API-Key": "your-api-key",
-    "Content-Type": "application/json"
-}
-data = {
-    "query": "coffee shops",
-    "location": "San Francisco, CA",
-    "max_results": 20,
-    "enrich_with_website": False
-}
-
-response = requests.post(url, json=data, headers=headers)
-result = response.json()
-
-print(f"Found {result['total_found']} results")
-for business in result['results']:
-    print(f"{business['rank']}. {business['name']} - {business['rating']} stars")
-```
-
-**Using JavaScript/Node.js:**
-
-```javascript
-const fetch = require('node-fetch');
-
-const url = 'http://localhost:8000/api/v1/scrape';
-const headers = {
-  'X-API-Key': 'your-api-key',
-  'Content-Type': 'application/json'
-};
-const data = {
-  query: 'coffee shops',
-  location: 'San Francisco, CA',
-  max_results: 20,
-  enrich_with_website: false
-};
-
-fetch(url, {
-  method: 'POST',
-  headers: headers,
-  body: JSON.stringify(data)
-})
-  .then(res => res.json())
-  .then(result => {
-    console.log(`Found ${result.total_found} results`);
-    result.results.forEach(business => {
-      console.log(`${business.rank}. ${business.name} - ${business.rating} stars`);
-    });
-  });
-```
-
-#### Production Deployment
-
-**Using Docker:**
-
-Create a `Dockerfile`:
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install Playwright
-RUN playwright install chromium
-RUN playwright install-deps chromium
-
-# Copy application code
-COPY . .
-
-# Expose port
-EXPOSE 8000
-
-# Run the application
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-Build and run:
-
-```bash
-docker build -t google-maps-scraper-api .
-docker run -p 8000:8000 --env-file .env google-maps-scraper-api
-```
-
-**Using Gunicorn with Uvicorn Workers:**
-
-```bash
-pip install gunicorn
-gunicorn app:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-```
-
-#### Security Best Practices
-
-1. **Always set a strong API key** in production
-2. **Use HTTPS** in production (configure reverse proxy like nginx)
-3. **Restrict CORS origins** to your frontend domains
-4. **Monitor rate limits** and adjust as needed
-5. **Keep dependencies updated** regularly
-6. **Use environment variables** for sensitive configuration
-7. **Implement logging** and monitoring in production
-
-#### API Troubleshooting
-
-**API Key Not Working:**
-- Verify `API_KEY` is set in `.env`
-- Check that the header name is `X-API-Key` (case-sensitive)
-- Ensure the API key matches exactly
-
-**Rate Limit Issues:**
-- Increase `RATE_LIMIT_PER_MINUTE` in `.env`
-- Check if multiple clients are using the same IP
-- Consider implementing per-user rate limiting
-
-**Scraping Failures:**
-- Check internet connectivity
-- Verify Playwright browser is installed: `playwright install chromium`
-- Check logs for detailed error messages
-- Google Maps may block excessive requests - add delays between requests
-
-### Run as Standalone Script
-
-```bash
-python google_maps_scraper_agent.py
-```
-
-Or run as a module:
-
-```bash
-python -m google_maps_scraper_agent
-```
-
-### Customize the Search
-
-Edit the `example_usage()` function in the script to customize:
-
-- **query**: What to search for (e.g., "restaurants", "coffee shops", "hair salons")
-- **location**: Where to search (e.g., "New York, NY", "San Francisco, CA")
-- **max_results**: How many results to extract (default: 20)
-- **enrich_with_website**: Whether to visit business websites for additional info (default: False)
-
-Example:
-
-```python
-result = await agent.process(
-    query="pizza restaurants",
-    location="Chicago, IL",
-    max_results=30,
-    enrich_with_website=True,  # Enable website scraping
-)
-```
-
-### Use as a Library
-
-You can also import and use the agent in your own Python code:
-
-```python
-from google_maps_scraper_agent import create_agent
-import asyncio
-
-async def scrape_maps():
-    agent = create_agent()
-    result = await agent.process(
-        query="hair salons",
-        location="Los Angeles, CA",
-        max_results=25,
-        enrich_with_website=True,  # Optional: scrape websites for emails
-    )
-    return result
-
-# Run the scraper
-result = asyncio.run(scrape_maps())
-print(f"Found {result['total_found']} results")
-```
-
-## Output
-
-Results are automatically saved to the `output` folder:
-
-### File Structure
-
-- **`results_{query}_{timestamp}.md`** - Human-readable markdown format with business details
-- **`results_{query}_{timestamp}.json`** - Machine-readable JSON format for further processing
-
-### Output Location
-
-- When run as a script: `{script_directory}/output/`
-- When run as a module: `{current_working_directory}/output/`
-
-The `output` folder is automatically created if it doesn't exist.
-
-### Markdown Format
-
-```markdown
-# Google Maps Search Results
-
-**Search Query:** coffee shops in San Francisco, CA
-**Total Results Found:** 20
-**Generated at:** 2024-11-30 10:30:00
-
----
-
-## 1. Blue Bottle Coffee
-
-- **Rating:** 4.5 (1,234 reviews)
-- **Category:** Coffee shop
-- **Price Level:** $$
-- **Address:** 66 Mint St, San Francisco, CA
-- **Phone:** +1 415-555-1234
-- **Website:** https://www.bluebottlecoffee.com
-- **Email:** contact@bluebottlecoffee.com
-- **Website Title:** Blue Bottle Coffee - Artisan Coffee Roasters
-- **Website Description:** Premium coffee roasters specializing in single-origin beans
-- **Website Summary:** Blue Bottle Coffee is a specialty coffee roaster...
-- **All Emails Found:** contact@bluebottlecoffee.com, info@bluebottlecoffee.com
-- **Google Maps URL:** https://www.google.com/maps/...
-
----
-
-## 2. Philz Coffee
-
-- **Rating:** 4.6 (890 reviews)
-- **Category:** Coffee shop
-- **Price Level:** $$
-- **Address:** 201 Berry St, San Francisco, CA
-- **Phone:** +1 415-555-5678
-- **Website:** https://www.philzcoffee.com
-- **Google Maps URL:** https://www.google.com/maps/...
-
----
-```
+## 📤 Output Formats
 
 ### JSON Format
 
@@ -588,94 +446,20 @@ The `output` folder is automatically created if it doesn't exist.
 }
 ```
 
-## Data Extracted
+### CSV Format
 
-For each business, the agent extracts from Google Maps:
+When `output_file_type="csv"`, results are saved as CSV files:
 
-- **Name**: Business name
-- **Rating**: Star rating (out of 5)
-- **Reviews**: Number of reviews
-- **Category**: Business type/category
-- **Price Level**: Cost indicator ($, $$, $$$, $$$$)
-- **Address**: Physical address
-- **Phone**: Phone number (extracted from list view and detail panel)
-- **Website**: Business website URL (extracted from list view)
-- **Email**: Email address (extracted from detail panel)
-- **URL**: Google Maps URL for the business
+```csv
+rank,name,rating,reviews,category,price_level,address,phone,website,email,url,website_title,website_description,website_summary,website_emails
+1,Blue Bottle Coffee,4.5,1234,Coffee shop,$$,66 Mint St San Francisco CA,+1 415-555-1234,https://www.bluebottlecoffee.com,contact@bluebottlecoffee.com,https://www.google.com/maps/...,Blue Bottle Coffee - Artisan Coffee Roasters,Premium coffee roasters...,Blue Bottle Coffee is a specialty...,contact@bluebottlecoffee.com, info@bluebottlecoffee.com
+```
 
-### Website Enrichment (Optional)
+**File Structure:**
+- **`results_{query}_{timestamp}.json`** - Machine-readable JSON format for further processing
+- **`results_{query}_{timestamp}.csv`** - CSV format for spreadsheet applications (when `output_file_type="csv"`)
 
-When `enrich_with_website=True`, the agent also:
-
-- **Visits Business Websites**: Scrapes each business website for additional information
-- **Finds Contact Pages**: Automatically detects and scrapes Contact/Contact Us pages for emails
-- **Finds About Pages**: Automatically detects and scrapes About/About Us pages for better summaries
-- **Extracts Website Metadata**:
-  - Website title
-  - Meta description
-  - Website summary (from About page when available)
-  - All email addresses found on the website
-  - Additional phone numbers from the website
-
-## How It Works
-
-### 1. Playwright Automation
-
-The agent uses Playwright to:
-- Launch a headless Chromium browser
-- Navigate to Google Maps search URL
-- Wait for results to load
-- Scroll to load more results
-- Extract data using JavaScript evaluation
-
-### 2. Data Extraction
-
-The scraper:
-- Finds result items using `div[role="feed"]` selector
-- Extracts information from aria-labels and visible text
-- Parses ratings, reviews, categories, addresses, phone numbers, and websites from list view
-- Clicks on each business to open detail panel and extract additional phone numbers and emails
-- Deduplicates results by business name
-
-### 3. Website Enrichment (Optional)
-
-When enabled, the scraper:
-- Visits each business website using Playwright
-- Automatically finds Contact pages by scanning links for keywords (contact, contact us, get in touch, etc.)
-- Automatically finds About pages by scanning links for keywords (about, about us, our story, etc.)
-- Extracts emails from Contact pages (more reliable than homepage)
-- Extracts website summaries from About pages (better content than homepage)
-- Falls back to homepage if Contact/About pages aren't found
-- Filters out false positive emails (example.com, test.com, etc.)
-
-### 4. Rate Limiting
-
-Built-in delays prevent:
-- IP blocking
-- CAPTCHA challenges
-- Failed requests
-- 1 second delay between website scrapes when enrichment is enabled
-
-## Limitations
-
-- **Rate Limits**: Google may still block excessive requests even with anti-detection (use proxy rotation for scale)
-- **CAPTCHA**: May appear if detection is triggered (configure CAPTCHA service for automatic resolution)
-- **Data Accuracy**: Extracted data depends on Google Maps HTML structure which may change
-- **JavaScript Required**: Must use browser automation; simple HTTP requests won't work
-- **No API Features**: Can't access some API-only features (e.g., detailed hours, photos)
-- **Proxy Quality**: Anti-detection effectiveness depends on proxy quality and rotation
-
-## Best Practices
-
-1. **Use Delays**: Add delays between searches to avoid rate limiting
-2. **Reasonable Limits**: Don't request hundreds of results at once
-3. **Handle Errors**: The agent has built-in error handling
-4. **Check Output**: Verify data quality in the output files
-5. **Respect Terms**: Be aware of Google's Terms of Service
-6. **Use Proxies**: For production use, configure proxy rotation to avoid IP blocking
-7. **Enable Stealth Mode**: Keep `STEALTH_ENABLED=true` for better success rates
-
-## Anti-Detection Features
+## 🛡️ Anti-Detection Features
 
 ### Overview
 
@@ -685,35 +469,23 @@ This scraper includes comprehensive anti-detection features to bypass bot detect
 |---------|-------------|---------------|
 | Stealth Browser | Evades automation detection | `STEALTH_ENABLED=true` |
 | Human Simulation | Random delays, natural scrolling | `HUMAN_SIMULATION_ENABLED=true` |
-| Proxy Rotation | Rotate IP addresses | `PROXY_URL`, `PROXY_LIST` |
+| Proxy Rotation | Rotate IP addresses | `PROXY_ENABLED=true`, `PROXY_URL`, `PROXY_LIST` |
 | User Agent Rotation | Rotate browser fingerprints | Automatic |
 | Timezone Spoofing | Match timezone to search location | Automatic |
 | Geolocation Spoofing | Match coordinates to search location | Automatic |
 | CAPTCHA Solving | Automatic CAPTCHA resolution | `CAPTCHA_SERVICE`, `CAPTCHA_API_KEY` |
 | Cookie Consent | Auto-handle cookie popups | Automatic |
 
-### Stealth Browser Configuration
-
-When `STEALTH_ENABLED=true`, the scraper:
-- Uses `playwright-stealth` for fingerprint evasion
-- Disables automation detection flags
-- Spoofs WebGL vendor/renderer
-- Overrides navigator properties
-- Uses realistic browser plugins
-
-### Human Behavior Simulation
-
-When `HUMAN_SIMULATION_ENABLED=true`, the scraper:
-- Uses random delays with normal distribution (not fixed delays)
-- Scrolls in increments with slight pauses (mimics human scrolling)
-- Adds delays before clicks
-- Waits realistically between page loads
-
 ### Proxy Configuration
+
+**Important:** Proxy is only used when `PROXY_ENABLED=true`. Set this to `false` to run without proxy.
 
 For reliable operation at scale, configure proxy rotation:
 
 ```env
+# Enable proxy usage
+PROXY_ENABLED=true
+
 # Single proxy
 PROXY_URL=http://proxy.example.com:8080
 PROXY_USERNAME=user
@@ -722,6 +494,11 @@ PROXY_PASSWORD=pass
 # Multiple proxies with rotation
 PROXY_ROTATION_ENABLED=true
 PROXY_LIST=http://proxy1:8080,http://proxy2:8080,http://proxy3:8080
+```
+
+**To disable proxy (run direct connection):**
+```env
+PROXY_ENABLED=false
 ```
 
 **Recommended Proxy Providers:**
@@ -751,129 +528,141 @@ The scraper will automatically:
 3. Wait for solution
 4. Inject solution and continue
 
-### Fallback Methods
+## 📝 Examples
 
-The scraper uses a fallback architecture:
+### Using cURL
 
-1. **Primary**: Stealth Playwright with configured proxy
-2. **Secondary**: Browserless service (if configured)
+```bash
+curl -X POST "http://localhost:8000/api/v1/scrape" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "pizza restaurants",
+    "location": "Chicago, IL",
+    "max_results": 10,
+    "save_to_file": true,
+    "output_file_type": "csv"
+  }'
+```
 
-If the primary method fails due to detection, it automatically tries the next method.
+### Using Python
 
-### Health Check with Stealth Status
+```python
+import requests
 
-The `/health` endpoint shows the current anti-detection configuration:
-
-```json
-{
-  "status": "healthy",
-  "message": "Google Maps Scraper API is running",
-  "version": "1.0.0",
-  "stealth_status": {
-    "stealth_enabled": true,
-    "human_simulation_enabled": true,
-    "proxy_configured": true,
-    "browserless_configured": false,
-    "captcha_service_configured": true
-  }
+url = "http://localhost:8000/api/v1/scrape"
+headers = {
+    "X-API-Key": "your-api-key",
+    "Content-Type": "application/json"
 }
+data = {
+    "query": "coffee shops",
+    "location": "San Francisco, CA",
+    "max_results": 20,
+    "save_to_file": True,
+    "output_file_type": "csv"
+}
+
+response = requests.post(url, json=data, headers=headers)
+result = response.json()
+
+print(f"Found {result['total_found']} results")
+for business in result['results']:
+    print(f"{business['rank']}. {business['name']} - {business['rating']} stars")
 ```
 
-## Dependencies
+### Using JavaScript/Node.js
 
-The agent requires:
+```javascript
+const fetch = require('node-fetch');
 
-**Core Dependencies:**
-- `langgraph` - Graph-based agent orchestration
-- `playwright` - Browser automation for JavaScript rendering
-- `fastapi` - API framework
-- `uvicorn` - ASGI server
-- `slowapi` - Rate limiting
+const url = 'http://localhost:8000/api/v1/scrape';
+const headers = {
+  'X-API-Key': 'your-api-key',
+  'Content-Type': 'application/json'
+};
+const data = {
+  query: 'coffee shops',
+  location: 'San Francisco, CA',
+  max_results: 20,
+  save_to_file: true,
+  output_file_type: 'csv'
+};
 
-**Anti-Detection Dependencies:**
-- `playwright-stealth` - Browser fingerprint evasion
-- `aiohttp` - HTTP client for fallback methods
-
-**Optional Dependencies:**
-- `2captcha-python` - CAPTCHA solving (install if using CAPTCHA service)
-
-All dependencies are listed in `requirements.txt`.
-
-## Logging
-
-The agent provides detailed logging during execution:
-
-- Navigation status
-- Scraping progress
-- Number of results found
-- Error messages
-- Workflow completion status
-
-All logs are printed to the console with timestamps.
-
-## Error Handling
-
-The agent includes comprehensive error handling:
-
-- Browser launch failures
-- Page load timeouts
-- Element not found errors
-- Network errors
-- File writing errors
-
-Errors are logged and reported clearly for easy debugging.
-
-## Example Output
-
-```
-🚀 Starting Google Maps Scraper Agent Workflow
-================================================================================
-
-🔍 NODE: scrape_google_maps_node - Starting Google Maps scraping
-================================================================================
-Navigating to: https://www.google.com/maps/search/coffee+shops+in+San+Francisco%2C+CA
-Extracted 10 results so far...
-Extracted 15 results so far...
-Extracted 20 results so far...
-Enriching results with phone numbers and websites...
-Enriching 1/20: Blue Bottle Coffee
-Enriching 2/20: Philz Coffee
-...
-✅ Successfully scraped 20 results
-
-📊 NODE: process_results_node - Processing results
-================================================================================
-✅ Processed 20 results
-
-🌐 NODE: enrich_websites_node - Scraping websites for additional info
-================================================================================
-Enriching 1/20: Blue Bottle Coffee - https://www.bluebottlecoffee.com
-Found contact page: https://www.bluebottlecoffee.com/contact
-Found about page: https://www.bluebottlecoffee.com/about
-Successfully scraped website: https://www.bluebottlecoffee.com, found 2 emails
-...
-✅ Enriched 20 results with website information
-
-✅ Workflow completed successfully!
-================================================================================
-
-✅ Results saved to: output/results_coffee-shops_20241130_103000.md
-   Full path: /path/to/output/results_coffee-shops_20241130_103000.md
-✅ JSON results saved to: output/results_coffee-shops_20241130_103000.json
-   Full path: /path/to/output/results_coffee-shops_20241130_103000.json
+fetch(url, {
+  method: 'POST',
+  headers: headers,
+  body: JSON.stringify(data)
+})
+  .then(res => res.json())
+  .then(result => {
+    console.log(`Found ${result.total_found} results`);
+    result.results.forEach(business => {
+      console.log(`${business.rank}. ${business.name} - ${business.rating} stars`);
+    });
+  });
 ```
 
-## Use Cases
+## 🚀 Deployment
 
-- **Local Business Research**: Find competitors in your area
-- **Market Analysis**: Research business density by category
-- **Lead Generation**: Extract contact information (phone, email, website) for outreach
-- **Email Collection**: Automatically find business emails from websites and Contact pages
-- **Data Analysis**: Analyze ratings, reviews, and pricing trends
-- **Location Scouting**: Find businesses in specific areas
-- **Contact Database Building**: Build comprehensive contact databases with phone, email, and website
+### Using Docker
 
-## Troubleshooting
+Create a `Dockerfile`:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright
+RUN playwright install chromium
+RUN playwright install-deps chromium
+
+# Copy application code
+COPY . .
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Build and run:
+
+```bash
+docker build -t google-maps-scraper-api .
+docker run -p 8000:8000 --env-file .env google-maps-scraper-api
+```
+
+### Using Gunicorn with Uvicorn Workers
+
+```bash
+pip install gunicorn
+gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+```
+
+### Security Best Practices
+
+1. **Always set a strong API key** in production
+2. **Use HTTPS** in production (configure reverse proxy like nginx)
+3. **Restrict CORS origins** to your frontend domains
+4. **Monitor rate limits** and adjust as needed
+5. **Keep dependencies updated** regularly
+6. **Use environment variables** for sensitive configuration
+7. **Implement logging** and monitoring in production
+
+## 🔧 Troubleshooting
 
 ### Playwright Installation Issues
 
@@ -906,6 +695,7 @@ If you get blocked or encounter CAPTCHA:
 
 2. **Configure Proxy Rotation**:
    ```env
+   PROXY_ENABLED=true
    PROXY_URL=http://your-proxy:port
    PROXY_ROTATION_ENABLED=true
    PROXY_LIST=http://proxy1:port,http://proxy2:port
@@ -924,54 +714,93 @@ If you get blocked or encounter CAPTCHA:
    - Wait 15-30 minutes before retrying
    - Use residential proxies instead of datacenter proxies
 
-## Website Enrichment Details
+### API Key Not Working
 
-### How It Works
+- Verify `API_KEY` is set in `.env`
+- Check that the header name is `X-API-Key` (case-sensitive)
+- Ensure the API key matches exactly
 
-1. **Homepage Scraping**: First scrapes the homepage for basic metadata (title, description)
-2. **Contact Page Detection**: Scans all links on the homepage to find Contact/Contact Us pages
-3. **Contact Page Scraping**: Extracts emails and phone numbers from Contact pages (more reliable)
-4. **About Page Detection**: Scans all links to find About/About Us pages
-5. **About Page Scraping**: Extracts content from About pages for better summaries
-6. **Fallback Logic**: Uses homepage if Contact/About pages aren't found
+### Scraping Failures
 
-### Email Extraction
+- Check internet connectivity
+- Verify Playwright browser is installed: `playwright install chromium`
+- Check logs for detailed error messages
+- Google Maps may block excessive requests - add delays between requests
 
-The agent extracts emails from:
-- Contact pages (primary source)
-- Homepage (fallback)
-- `mailto:` links
-- Text content using regex patterns
+## 📊 Data Extracted
 
-Emails are filtered to exclude:
-- Example/test domains (example.com, test.com)
-- Social media emails (@google, @facebook)
-- Auto-generated emails (noreply, no-reply)
+For each business, the agent extracts from Google Maps:
 
-### Summary Extraction
+- **Name**: Business name
+- **Rating**: Star rating (out of 5)
+- **Reviews**: Number of reviews
+- **Category**: Business type/category
+- **Price Level**: Cost indicator ($, $$, $$$, $$$$)
+- **Address**: Physical address
+- **Phone**: Phone number (extracted from list view and detail panel)
+- **Website**: Business website URL (extracted from list view)
+- **Email**: Email address (extracted from detail panel)
+- **URL**: Google Maps URL for the business
 
-The agent prioritizes:
-1. About page content (best quality)
-2. Homepage content (fallback)
+### Website Enrichment (Optional)
 
-This ensures summaries contain meaningful business information rather than code snippets.
+When using the `/api/v1/enrich` endpoint, the agent also:
 
-## Future Enhancements
+- **Visits Business Websites**: Scrapes each business website for additional information
+- **Finds Contact Pages**: Automatically detects and scrapes Contact/Contact Us pages for emails
+- **Finds About Pages**: Automatically detects and scrapes About/About Us pages for better summaries
+- **Extracts Website Metadata**:
+  - Website title
+  - Meta description
+  - Website summary (from About page when available)
+  - All email addresses found on the website
+  - Additional phone numbers from the website
+
+## 📚 API Endpoints Summary
+
+| Endpoint | Method | Description | Input | Output |
+|----------|--------|-------------|-------|--------|
+| `/health` | GET | Health check | - | JSON |
+| `/api/v1/scrape` | POST | Scrape Google Maps | JSON body | JSON/CSV file |
+| `/api/v1/enrich` | POST | Enrich business results | JSON/CSV file upload | JSON/CSV response |
+| `/api/v1/extract` | POST | Extract website & companyName | JSON file upload | JSON |
+
+## 🎯 Use Cases
+
+- **Local Business Research**: Find competitors in your area
+- **Market Analysis**: Research business density by category
+- **Lead Generation**: Extract contact information (phone, email, website) for outreach
+- **Email Collection**: Automatically find business emails from websites and Contact pages
+- **Data Analysis**: Analyze ratings, reviews, and pricing trends
+- **Location Scouting**: Find businesses in specific areas
+- **Contact Database Building**: Build comprehensive contact databases with phone, email, and website
+
+## ⚠️ Limitations
+
+- **Rate Limits**: Google may still block excessive requests even with anti-detection (use proxy rotation for scale)
+- **CAPTCHA**: May appear if detection is triggered (configure CAPTCHA service for automatic resolution)
+- **Data Accuracy**: Extracted data depends on Google Maps HTML structure which may change
+- **JavaScript Required**: Must use browser automation; simple HTTP requests won't work
+- **No API Features**: Can't access some API-only features (e.g., detailed hours, photos)
+- **Proxy Quality**: Anti-detection effectiveness depends on proxy quality and rotation
+
+## 🔮 Future Enhancements
 
 Potential improvements:
 - Extract photos and business hours
 - Support for filtering results
-- Export to CSV format
 - Parallel scraping for multiple queries
 - Support for multiple languages
 - Selenium undetected-chromedriver fallback
 - Machine learning-based CAPTCHA detection
 - Residential proxy pool integration
 
-## License
+## 📄 License
 
 This is a standalone agent template. Use and modify as needed for your projects.
 
 **Note**: Web scraping may violate Google's Terms of Service. Use responsibly and consider using the official Google Places API for production applications.
 
-# google-maps-scrapper-agent
+---
+
+**Made with ❤️ for developers who need reliable Google Maps scraping**

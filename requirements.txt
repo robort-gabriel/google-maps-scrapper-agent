@@ -1,6 +1,4 @@
-# Google Maps Scraper LangGraph Agent - Requirements
-# Install with: pip install -r requirements.txt
-#
+
 # Quick Start:
 #   1. pip install -r requirements.txt
 #   2. playwright install chromium
@@ -17,6 +15,7 @@ fastapi==0.115.0
 uvicorn[standard]==0.32.0
 slowapi==0.1.9
 gunicorn==21.2.0
+python-multipart==0.0.9
 
 # Core LangGraph dependencies
 langgraph==0.2.18

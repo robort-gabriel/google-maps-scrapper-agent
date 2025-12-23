@@ -16,3 +16,6 @@
 *.pyc
 .DS_Store
 
+/realdata/
+/DM-Agency-USA/
+/DM-Agency-Abuja/ 
